@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="zh-Hans">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>聊斋·逐字点读注释（无全文白话版）</title>
+  <style>
+    :root{ --bg:#0b0f14; --card:#121821; --muted:#233044; --text:#e7eef7; --sub:#9db2cf; --accent:#4da3ff; --border:#1c2431; --hl:#1d2a3c; --chip:#22334b; --yellow:#ffd166; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Noto Sans SC","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:linear-gradient(180deg,#0b0f14,#0e141d);color:var(--text)}
+    .container{max-width:1100px;margin:0 auto;padding:28px;display:grid;gap:20px;grid-template-columns:1.2fr 0.8fr}
+    header{grid-column:1/-1;background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px 20px;display:flex;gap:14px;align-items:center}
+    header h1{margin:0;font-size:20px;font-weight:700;letter-spacing:0.02em}
+    header .meta{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+    .chip{background:var(--chip);border:1px solid var(--border);color:var(--sub);padding:6px 10px;border-radius:999px;font-size:12px}
+
+    .workspace{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+    .toolbar input[type="text"]{flex:1;min-width:180px;padding:10px 12px;border-radius:12px;background:#0d131c;color:var(--text);border:1px solid var(--border)}
+    .btn{background:var(--hl);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;font-size:13px;cursor:pointer}
+    .btn.secondary{background:transparent}
+    .btn:hover{border-color:#2d3b52}
+    .btn.toggle.active{outline:2px solid var(--accent)}
+
+    .text-panel{height:70vh;overflow:auto;padding:12px;border-radius:14px;background:#0b111a;border:1px solid var(--border)}
+    .line{margin:10px 0;line-height:2.2}
+    .char{display:inline-block;padding:2px 6px;margin:0 2px;border-radius:8px;cursor:pointer;user-select:none}
+    .char:hover{background:rgba(77,163,255,.1)}
+    .char.active{background:rgba(77,163,255,.18);outline:1px dashed rgba(77,163,255,.35)}
+    .punct{opacity:.6;cursor:default}
+
+    .panel{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:12px}
+    .panel h2{margin:2px 0 6px 0;font-size:16px}
+    .kv{display:grid;grid-template-columns:80px 1fr;gap:8px;align-items:center}
+    .kv input, .kv textarea{width:100%;padding:10px 12px;border-radius:12px;background:#0d131c;color:var(--text);border:1px solid var(--border)}
+    .kv textarea{min-height:120px;resize:vertical}
+    .hint{color:var(--sub);font-size:12px}
+    .small{font-size:12px;color:var(--sub)}
+    .stat{display:flex;gap:10px;flex-wrap:wrap}
+    .stat .chip{background:#152033}
+    .divider{height:1px;background:var(--border);margin:6px 0}
+    .footer{grid-column:1/-1;text-align:center;color:var(--sub);font-size:12px}
+    .highlight{background:rgba(255,209,102,.12);border-radius:6px;padding:0 4px}
+
+    #bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px;box-shadow:0 10px 30px rgba(0,0,0,.35);z-index:9999;pointer-events:none}
+    #bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+    #bubble .b-char{font-size:18px;font-weight:700}
+    #bubble .b-pinyin{font-size:14px;color:var(--yellow)}
+    #bubble .b-gloss{font-size:13px;color:var(--text)}
+    #bubble .b-empty{color:var(--sub);font-style:italic}
+
+    .settings{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:12px;margin-top:10px}
+    .settings .grid{display:grid;grid-template-columns:140px 1fr 110px;gap:8px;align-items:center}
+
+    .rightcol{display:flex;flex-direction:column;gap:12px}
+  </style>
+  <script src="https://unpkg.com/pinyin-pro/dist/pinyin-pro.umd.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>《聊斋志异》第一篇 · 逐字点读注释</h1>
+      <div class="meta">
+        <span class="chip">点击任一字查看注解</span>
+        <span class="chip">支持导入/导出注释JSON</span>
+        <span class="chip">本页离线可用</span>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <div class="toolbar">
+        <input id="titleInput" type="text" placeholder="请输入标题（例如：考城隍）" />
+        <button class="btn" id="loadSample">载入示例开头</button>
+        <button class="btn secondary" id="clearPage">清空文本</button>
+        <label class="btn" for="fileInput">导入注释JSON</label>
+        <input id="fileInput" type="file" accept="application/json" style="display:none" />
+        <button class="btn" id="exportBtn">导出注释JSON</button>
+        <button class="btn toggle" id="togglePhrase">词组注释模式</button>
+      </div>
+
+      <textarea id="rawInput" placeholder="将《聊斋》原文粘贴到此（建议按自然语句分行）。&#10;提示：‘词组注释模式’开启后，先点起始字，再点结束字，即可对该词组注释。" style="width:100%;height:120px;padding:12px;border-radius:12px;background:#0d131c;color:var(--text);border:1px solid var(--border);"></textarea>
+
+      <div style="display:flex;gap:8px;margin:10px 0;align-items:center;flex-wrap:wrap">
+        <button class="btn" id="renderBtn">渲染文本</button>
+        <span class="small">渲染后点击任意字；若有词组注释，优先显示词组释义（联系上下文）。</span>
+      </div>
+
+      <div class="text-panel" id="textPanel" aria-live="polite"></div>
+
+      <div class="settings">
+        <div class="grid">
+          <label>上下文API地址</label>
+          <input id="apiUrl" placeholder="如：https://api.openai.com/v1/chat/completions"/>
+          <button class="btn secondary" id="testCtx">释义当前行</button>
+
+          <label>API Key</label>
+          <input id="apiKey" type="password" placeholder="Bearer 密钥（本地存储，仅你可见）"/>
+          <button class="btn secondary" id="saveApi">保存配置</button>
+
+          <label>模型</label>
+          <input id="apiModel" placeholder="如：gpt-4o-mini / deepseek-chat"/>
+          <span></span>
+        </div>
+        <div class="small" style="margin-top:6px">说明：配置后可<span class="highlight">整段一次生成</span>词组与必要单字释义（也可用“释义当前行”按钮按行测试）；不再生成“全文白话”。未配置仍可用词组模式+手工注释。</div>
+        <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn secondary" id="presetDeepseek">一键配置 DeepSeek</button>
+          <span class="small">（DeepSeek 采用 OpenAI 兼容接口）</span>
+        </div>
+      </div>
+
+      <div id="bubble" role="tooltip" aria-hidden="true"></div>
+    </section>
+
+    <div class="rightcol">
+      <section class="panel" id="phrasePanel">
+        <h2>词组释义</h2>
+        <div class="small">开启“词组注释模式”后，先点起始字再点结束字，区间会载入到这里编辑并保存。</div>
+        <div class="kv"><div>所在行</div><input id="phLine" readonly></div>
+        <div class="kv"><div>词组</div><input id="phText" placeholder="自动填入或手动输入"></div>
+        <div class="kv"><div>范围</div><input id="phRange" readonly placeholder="s-e"></div>
+        <div class="kv"><div>读音</div><input id="phPinyin" placeholder="可选：拼音"></div>
+        <div class="kv"><div>白话</div><textarea id="phGloss" placeholder="该词组在上下文中的解释"></textarea></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="phSave">保存词组注释</button>
+          <button class="btn secondary" id="phDelete">删除该词组</button>
+        </div>
+        <div class="divider"></div>
+        <p class="small">提示：点击任意命中已保存词组范围内的字，也会自动载入到此面板便于修改。</p>
+      </section>
+
+      <section class="panel" id="sidePanel">
+        <h2>单字释义</h2>
+        <div class="stat">
+          <span class="chip" id="statTitle">未选择</span>
+          <span class="chip" id="statIndex">—</span>
+          <span class="chip" id="statSaved">已收录：0</span>
+        </div>
+        <div class="divider"></div>
+        <div class="kv">
+          <div>原字符</div>
+          <input id="fieldChar" readonly />
+        </div>
+        <div class="kv">
+          <div>读音</div>
+          <input id="fieldPinyin" placeholder="例如：kǎo／chéng／huáng" />
+        </div>
+        <div class="kv">
+          <div>白话</div>
+          <textarea id="fieldGloss" placeholder="填写此字在该语境中的释义或译文要点。若该字属于某个词组，优先在词组里注释。"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" id="saveNote">保存注释</button>
+          <button class="btn secondary" id="deleteNote">删除该字注释</button>
+        </div>
+        <div class="divider"></div>
+        <p class="hint">优先级：<span class="highlight">词组注释 &gt; 单字注释</span>。点字时若命中词组，将显示词组释义并在气泡中突出。</p>
+        <p class="small">数据自动保存到 LocalStorage；可导出 JSON 备份。</p>
+      </section>
+    </div>
+
+    <div class="footer">© 2025 逐字+词组注释实验页 · 不含全文白话</div>
+  </div>
+
+  <script type="module">
+  const store={key:'liaozhai_notes_v2',load(){try{return JSON.parse(localStorage.getItem(this.key)||'{}')}catch(e){return{}}},save(d){localStorage.setItem(this.key,JSON.stringify(d))},clear(){localStorage.removeItem(this.key)}};
+  let notes=store.load();
+  let current={line:-1,idx:-1,char:''};
+  let phraseMode=false;let phraseStart=null;
+  const $=s=>document.querySelector(s);
+  const isPunct=ch=>/[\u3000\s，。、“”《》？！；：（）——…,.!?;:()\-\[\]{}]/.test(ch);
+  const panel={updateStat(){const charCount=Object.values(notes.lines||[]).flat().filter(x=>x&&(x.p||x.g)).length;const phraseCount=Object.values(notes.phrases||{}).flat().length;$('#statSaved').textContent=`已收录：字 ${charCount} / 词组 ${phraseCount}`;$('#statTitle').textContent=notes.title?`《${notes.title}》`:'未命名';$('#statIndex').textContent=current.line>=0?`第${current.line+1}行·第${current.idx+1}字`:'—'},showChar(ch){$('#fieldChar').value=ch||'';},fillFields(note){$('#fieldPinyin').value=note?.p||'';$('#fieldGloss').value=note?.g||'';},setStatus(t){const el=$('#autoStatus');if(el)el.textContent=t||'';}};
+
+  function render(lines){const box=$('#textPanel');box.innerHTML='';(lines||[]).forEach((line,li)=>{const div=document.createElement('div');div.className='line';Array.from(line).forEach((ch,ci)=>{const span=document.createElement('span');span.textContent=ch;span.className='char'+(isPunct(ch)?' punct':'');span.setAttribute('data-li',li);span.setAttribute('data-ci',ci);if(!isPunct(ch))span.addEventListener('click',onCharClick);div.appendChild(span)});box.appendChild(div)})}
+  function hitPhrase(line,idx){const arr=(notes.phrases?.[line])||[];for(const ph of arr){if(idx>=ph.s&&idx<=ph.e)return ph}return null}
+  function getPhrase(line,s,e){const arr=(notes.phrases?.[line])||[];return arr.find(ph=>ph.s===s&&ph.e===e)||null}
+  function getSpanText(li,s,e){return (notes.lines?.[li]||[]).slice(s,e+1).map(x=>x?.c||'').join('')}
+
+  function onCharClick(e){const el=e.currentTarget;const li=+el.getAttribute('data-li');const ci=+el.getAttribute('data-ci');if(phraseMode){if(phraseStart&&phraseStart.line===li){const s=Math.min(phraseStart.idx,ci);const e2=Math.max(phraseStart.idx,ci);phraseStart=null;loadPhraseEditor(li,s,e2);return}else{phraseStart={line:li,idx:ci};document.querySelectorAll('.char.active').forEach(x=>x.classList.remove('active'));el.classList.add('active');return}}document.querySelectorAll('.char.active').forEach(x=>x.classList.remove('active'));el.classList.add('active');current={line:li,idx:ci,char:el.textContent};panel.showChar(current.char);const ph=hitPhrase(li,ci);const n=(notes.lines?.[li]?.[ci])||null;panel.fillFields(n);panel.updateStat();if(ph)loadPhraseEditor(li,ph.s,ph.e);showBubbleFor(li,ci,el,ph)}
+
+  $('#saveNote').addEventListener('click',()=>{if(current.line<0)return alert('请先点击左侧文本中的某个字');notes.lines=notes.lines||[];notes.lines[current.line]=notes.lines[current.line]||[];const p=$('#fieldPinyin').value.trim();const g=$('#fieldGloss').value.trim();notes.lines[current.line][current.idx]={c:current.char,p,g};store.save(notes);panel.updateStat()});
+  $('#deleteNote').addEventListener('click',()=>{if(current.line<0)return;if(notes.lines?.[current.line])notes.lines[current.line][current.idx]={c:current.char};store.save(notes);panel.fillFields({});panel.updateStat()});
+
+  $('#renderBtn').addEventListener('click',()=>{const raw=$('#rawInput').value.replace(/\r/g,'');const lines=raw.split(/\n+/).map(s=>s.trim());notes.title=$('#titleInput').value.trim();notes.lines=notes.lines||[];lines.forEach((line,li)=>{const arr=Array.from(line);notes.lines[li]=notes.lines[li]||[];arr.forEach((ch,ci)=>{const prev=notes.lines[li][ci];notes.lines[li][ci]=prev?{c:ch,p:prev.p||'',g:prev.g||''}:{c:ch}})});notes.lines=notes.lines.slice(0,lines.length).map((row,i)=>row.slice(0,lines[i].length));store.save(notes);render(lines);panel.updateStat()});
+
+  $('#titleInput').addEventListener('input',()=>{notes.title=$('#titleInput').value.trim();store.save(notes);panel.updateStat()});
+  $('#loadSample').addEventListener('click',()=>{const sampleTitle='考城隍（节选）';const sample=['昔有儒生，孤介寡合。','夜半梦至一城，市肆如昼。','忽有吏呼至庭，若将试者。'].join('\n');$('#titleInput').value=sampleTitle;$('#rawInput').value=sample});
+  $('#clearPage').addEventListener('click',()=>{if(confirm('清空将移除本页文本、词组与所有注释（不会删除导出的JSON）。确定吗？')){notes={};store.clear();$('#titleInput').value='';$('#rawInput').value='';$('#textPanel').innerHTML='';current={line:-1,idx:-1,char:''};panel.updateStat()}});
+  $('#fileInput').addEventListener('change',async(e)=>{const file=e.target.files?.[0];if(!file)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj||!Array.isArray(obj.lines))throw new Error('格式错误');notes={title:obj.title||'',lines:obj.lines,phrases:obj.phrases||{}};store.save(notes);$('#titleInput').value=notes.title||'';const raw=(notes.lines||[]).map(r=>r.map(x=>x?.c||'').join('')).join('\n');$('#rawInput').value=raw;render(raw.split('\n'));panel.updateStat()}catch(err){alert('导入失败：'+err.message)}e.target.value=''});
+  $('#exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(notes,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);const title=notes.title?notes.title.replace(/[\\/:*?"<>|]/g,'_'):'聊斋注释';a.download=`${title}_逐字注释.json`;a.click();URL.revokeObjectURL(a.href)});
+
+  $('#togglePhrase').addEventListener('click',()=>{phraseMode=!phraseMode;phraseStart=null;$('#togglePhrase').classList.toggle('active',phraseMode);$('#togglePhrase').textContent=phraseMode?'词组注释模式（点起始→结束）':'词组注释模式'});
+
+  const COMMON_GLOSS={'之':'（助）的；代词：它/他/这','其':'（代/副）他的；其中；大概','于':'（介）在、对、从；比','以':'（介/连）用、因为、所以','而':'（连）而且、却、于是','也':'（语气）句末语气','者':'（助）名词化；……的人/事','焉':'（兼词/语气）于之；语气词','矣':'（语气）了（变化/完成）','乎':'（语气/介）吗；在、于','所':'（助）所+动词=名词化','则':'（连）就、那么、却','乃':'（副）才、于是、竟然','且':'（连/副）而且、将要、姑且','若':'（动/连）如、如果；你','因':'（动/介）凭借、于是、因为','遂':'（副）于是、就','即':'（副）就是、便','复':'（副/动）又、再；恢复'};
+
+  async function fetchPinyinForChar(ch){try{if(window.pinyinPro&&typeof window.pinyinPro.pinyin==='function'){const s=window.pinyinPro.pinyin(ch,{toneType:'mark',nonZh:'consecutive',type:'string'});if(s&&/[a-zA-Z]/.test(s))return s}}catch(e){}const url='https://inputtools.google.com/request?text='+encodeURIComponent(ch)+'&itc=zh-t-i0-pinyin&num=1';try{const controller=new AbortController();const t=setTimeout(()=>{try{controller.abort()}catch(_){}} ,2500);const res=await fetch(url,{signal:controller.signal});clearTimeout(t);const data=await res.json();if(Array.isArray(data)&&data[0]==='SUCCESS'){const cand=(data?.[1]?.[0]?.[1]?.[0])||'';return cand.replace(/\s+/g,' ')}}catch(e){}return ''}
+
+  async function autoAnnotate(onlyMissing,withGloss){if(!notes.lines||!notes.lines.length){alert('请先粘贴原文并点击“渲染文本”。');return}panel.setStatus('自动注释（拼音/虚词）进行中…');let seen=0,updated=0;for(let li=0;li<notes.lines.length;li++){const row=notes.lines[li];if(!row)continue;for(let ci=0;ci<row.length;ci++){const cell=row[ci]||{};const ch=cell.c||'';if(!ch||isPunct(ch))continue;seen++;if(onlyMissing&&(cell.p||cell.g))continue;const p=await fetchPinyinForChar(ch);const g=(withGloss&&COMMON_GLOSS[ch])?COMMON_GLOSS[ch]:(cell.g||'');notes.lines[li][ci]={c:ch,p:p||cell.p||'',g};updated++;if(updated%24===0){panel.setStatus(`已处理 ${updated} / ${seen} …`)}await new Promise(r=>setTimeout(r,10))}}store.save(notes);panel.setStatus(`拼音阶段完成：${updated} 个字符。`)}
+
+  function getLineText(li){return (notes.lines?.[li]||[]).map(x=>x?.c||'').join('')}
+
+  async function contextExplainLine(li){const cfg=(function(){try{let c=localStorage.getItem('liaozhai_ctx_api');if(!c||c==='{}'){c=localStorage.getItem('liaozhai_ctx_api_backup')||'{}'}return JSON.parse(c)}catch(e){return{}}})();if(!cfg.url||!cfg.key)return;const text=getLineText(li);if(!text)return;const phrases=(notes.phrases?.[li]||[]).map(ph=>({start:ph.s,end:ph.e,gloss:ph.g||'',pinyin:ph.p||''}));const sys='你是文言文标注助手。对给定一句文言：先识别应优先的词组并给出释义，再补充必要的单字释义；不要给整段白话翻译。\n严格只返回 JSON：{"chars":[{"i":索引,"g":"释义","p":"拼音(可选)","ch":"原字(可选)"}],"phrases":[{"s":起,"e":止,"g":"释义","p":"拼音(可选)"}]}.\n要求：1) 仅使用请求中提供的 charList 索引；2) 不得新增或改写字符；3) 不确定可省略；4) 索引必须在范围内。';const usr=JSON.stringify({lineIndex:li,text,charList:Array.from(text).map((ch,i)=>({i,ch})),knownPhrases:phrases});const body={model:cfg.model||'gpt-4o-mini',messages:[{role:'system',content:sys},{role:'user',content:usr}],temperature:0.2,response_format:{type:'json_object'}};const res=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},body:JSON.stringify(body)});const data=await res.json();let payload=data;if(data.choices&&data.choices[0]?.message?.content){try{payload=JSON.parse(data.choices[0].message.content)}catch(e){}}if(payload?.chars){notes.lines[li]=notes.lines[li]||[];const len=text.length;for(const it of payload.chars){const i=+it.i;if(!Number.isInteger(i)||i<0||i>=len)continue;const chAt=text[i];if(it.ch&&it.ch!==chAt)continue;const cell=notes.lines[li][i]||{c:chAt};notes.lines[li][i]={c:cell.c||chAt,p:it.p||cell.p||'',g:it.g||cell.g||''}}}if(payload?.phrases){notes.phrases=notes.phrases||{};notes.phrases[li]=notes.phrases[li]||[];const exist=notes.phrases[li];const len=text.length;for(const ph of payload.phrases){let s=+ph.s,e=+ph.e;if(!Number.isInteger(s)||!Number.isInteger(e))continue;if(s>e)[s,e]=[e,s];if(s<0||e>=len)continue;const rec={s,e,p:ph.p||'',g:ph.g||''};const idx=exist.findIndex(x=>x.s===s&&x.e===e);if(idx>=0)exist[idx]=rec;else exist.push(rec)}}store.save(notes);panel.updateStat();if(current.line===li){const el=document.querySelector(`.char[data-li="${li}"][data-ci="${current.idx}"]`);if(el)showBubbleFor(li,current.idx,el)}}
+
+  async function contextExplainAll(linesArr){const cfg=(function(){try{let c=localStorage.getItem('liaozhai_ctx_api');if(!c||c==='{}'){c=localStorage.getItem('liaozhai_ctx_api_backup')||'{}'}return JSON.parse(c)}catch(e){return{}}})();if(!cfg.url||!cfg.key)return;const req={lines:linesArr.map((text,i)=>({index:i,text,charList:Array.from(text).map((ch,idx)=>({i:idx,ch})),knownPhrases:(notes.phrases?.[i]||[]).map(ph=>({s:ph.s,e:ph.e,g:ph.g||'',p:ph.p||''}))}))};const sys='你是文言文标注助手。对整段文本（多行），请对每一行：先识别应优先的词组并给出释义，再补充必要的单字释义。不要生成整段白话。\n严格只返回 JSON：{"lines":[{"index":行号,"chars":[{"i":索引,"g":"释义","p":"拼音(可选)","ch":"原字(可选)"}],"phrases":[{"s":起,"e":止,"g":"释义","p":"拼音(可选)"}]}]}.\n要求：每一行的索引必须来源于请求提供的 charList，且不得越界或改写字符。';const usr=JSON.stringify(req);const body={model:cfg.model||'gpt-4o-mini',messages:[{role:'system',content:sys},{role:'user',content:usr}],temperature:0.2,response_format:{type:'json_object'}};const res=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+cfg.key},body:JSON.stringify(body)});const data=await res.json();let payload=data;if(data.choices&&data.choices[0]?.message?.content){try{payload=JSON.parse(data.choices[0].message.content)}catch(e){}}if(!payload?.lines||!Array.isArray(payload.lines))return;for(const lineObj of payload.lines){const li=+lineObj.index;if(isNaN(li))continue;const text=linesArr[li]||'';const len=text.length;if(Array.isArray(lineObj.chars)){notes.lines[li]=notes.lines[li]||[];for(const it of lineObj.chars){const i=+it.i;if(!Number.isInteger(i)||i<0||i>=len)continue;const chAt=text[i];if(it.ch&&it.ch!==chAt)continue;const cell=notes.lines[li][i]||{c:chAt};notes.lines[li][i]={c:cell.c||chAt,p:it.p||cell.p||'',g:it.g||cell.g||''}}}if(Array.isArray(lineObj.phrases)){notes.phrases=notes.phrases||{};notes.phrases[li]=notes.phrases[li]||[];const exist=notes.phrases[li];for(const ph of lineObj.phrases){let s=+ph.s,e=+ph.e;if(!Number.isInteger(s)||!Number.isInteger(e))continue;if(s>e)[s,e]=[e,s];if(s<0||e>=len)continue;const rec={s,e,p:ph.p||'',g:ph.g||''};const idx=exist.findIndex(x=>x.s===s&&x.e===e);if(idx>=0)exist[idx]=rec;else exist.push(rec)}}}store.save(notes);panel.updateStat()}
+
+  async function autoAnnotateAndExplain(full){await autoAnnotate(!full,$('#optGloss').checked);const cfg=(function(){try{let c=localStorage.getItem('liaozhai_ctx_api');if(!c||c==='{}'){c=localStorage.getItem('liaozhai_ctx_api_backup')||'{}'}return JSON.parse(c)}catch(e){return{}}})();if(cfg&&cfg.url&&cfg.key){panel.setStatus('正在将整段文本一次性提交给模型…');const lines=$('#rawInput').value.replace(/\r/g,'').split(/\n+/);await contextExplainAll(lines);store.save(notes);panel.setStatus('完成：整段释义已生成。')}else{panel.setStatus('完成（未配置上下文API，仅生成拼音/常见虚词释义）。')}}
+
+  const autoPanel=document.createElement('section');autoPanel.className='panel';autoPanel.innerHTML='<h2>自动注释</h2>\
+    <div class="small">说明：为整篇或仅缺失项自动填充拼音；可选同步填入常见虚词白话。若已配置API，将继续生成“按行的词组+单字释义”（不生成全文白话）。</div>\
+    <div class="toolbar" style="margin:0;padding:0">\
+      <label style="display:flex;align-items:center;gap:6px" class="small">\
+        <input id="optGloss" type="checkbox" checked /> 同时填入常见虚词的白话\
+      </label>\
+      <button class="btn" id="autoAll">自动注释（整篇）</button>\
+      <button class="btn secondary" id="autoMissing">自动注释（仅缺失）</button>\
+      <span id="autoStatus" class="small" style="margin-left:auto"></span>\
+    </div>';document.querySelector('.workspace').appendChild(autoPanel);document.getElementById('autoAll').addEventListener('click',()=>autoAnnotateAndExplain(true));document.getElementById('autoMissing').addEventListener('click',()=>autoAnnotateAndExplain(false));
+
+  (function init(){try{const cfg=(function(){try{let c=localStorage.getItem('liaozhai_ctx_api');if(!c||c==='{}'){c=localStorage.getItem('liaozhai_ctx_api_backup')||'{}'}return JSON.parse(c)}catch(e){return{}})();$('#apiUrl').value=cfg.url||'';$('#apiKey').value=cfg.key||'';$('#apiModel').value=cfg.model||''}catch(e){}if(notes&&notes.lines){$('#titleInput').value=notes.title||'';const raw=(notes.lines||[]).map(r=>r.map(x=>x?.c||'').join('')).join('\n');$('#rawInput').value=raw;render(raw.split('\n'))}panel.updateStat()})();
+
+  function showBubbleFor(li,ci,el,cachedPh){const b=document.getElementById('bubble');const ph=cachedPh||hitPhrase(li,ci);const n=(notes.lines?.[li]?.[ci])||{};const ch=n.c||el.textContent||'';let title=ch,p=(n.p||'').trim(),g=(n.g||'').trim();if(ph){title=getSpanText(li,ph.s,ph.e);p=ph.p||p;g=ph.g||g}b.innerHTML=`<div class="b-hd"><span class="b-char">${title}</span><span class="b-pinyin">${p||'—'}</span></div><div class="b-gloss">${g||'<span class="b-empty">暂无释义（可在右侧或词组模式填写）</span>'}</div>`;b.style.display='block';requestAnimationFrame(()=>{const r=el.getBoundingClientRect();const pad=8;let left=r.left+window.scrollX;let top=r.bottom+window.scrollY+pad;const maxLeft=window.scrollX+window.innerWidth-b.offsetWidth-12;if(left>maxLeft)left=maxLeft;b.style.left=left+'px';b.style.top=top+'px';b.setAttribute('aria-hidden','false')})}
+  function hideBubble(){const b=document.getElementById('bubble');if(!b)return;b.style.display='none';b.setAttribute('aria-hidden','true')}
+  document.addEventListener('scroll',hideBubble,true);document.addEventListener('keydown',(e)=>{if(e.key==='Escape')hideBubble()});document.addEventListener('click',(e)=>{const b=document.getElementById('bubble');if(!b)return;if(e.target.closest('#bubble')||e.target.closest('.char'))return;hideBubble()});
+
+  $('#saveApi').addEventListener('click',()=>{const cfg={url:$('#apiUrl').value.trim(),key:$('#apiKey').value.trim(),model:$('#apiModel').value.trim()};localStorage.setItem('liaozhai_ctx_api',JSON.stringify(cfg));localStorage.setItem('liaozhai_ctx_api_backup',JSON.stringify(cfg));alert('已保存API配置（仅保存在本机浏览器）')});
+  $('#testCtx').addEventListener('click',()=>{const li=current.line>=0?current.line:0;contextExplainLine(li)});
+  $('#presetDeepseek').addEventListener('click',()=>{$('#apiUrl').value='https://api.deepseek.com/v1/chat/completions';$('#apiModel').value='deepseek-chat';alert('已填入 DeepSeek 兼容配置，请粘贴你的 API Key 后保存。')});
+
+  // 轻量冒烟测试
+  (function runSmoke(){try{document.getElementById('rawInput').value='甲乙丙';document.getElementById('renderBtn').click();document.getElementById('autoAll').click()}catch(_){}})();
+
+  // 词组编辑器
+  let phraseCurrent={line:-1,s:-1,e:-1};
+  function ensurePhraseStore(li){notes.phrases=notes.phrases||{};notes.phrases[li]=notes.phrases[li]||[];return notes.phrases[li]}
+  function loadPhraseEditor(li,s,e){phraseCurrent={line:li,s,e};const text=getSpanText(li,s,e);const exist=getPhrase(li,s,e)||{};const lineLabel=document.getElementById('phLine');if(lineLabel)lineLabel.value=`第 ${li+1} 行`;const textEl=document.getElementById('phText');if(textEl)textEl.value=text;const rangeEl=document.getElementById('phRange');if(rangeEl)rangeEl.value=`${s}-${e}`;const pEl=document.getElementById('phPinyin');if(pEl)pEl.value=exist.p||'';const gEl=document.getElementById('phGloss');if(gEl)gEl.value=exist.g||'';document.querySelectorAll('.char.active').forEach(x=>x.classList.remove('active'));for(let i=s;i<=e;i++){const el=document.querySelector(`.char[data-li="${li}"][data-ci="${i}"]`);if(el)el.classList.add('active')}}
+  function upsertPhrase(li,s,e,p,g){const arr=ensurePhraseStore(li);const idx=arr.findIndex(x=>x.s===s&&x.e===e);const rec={s,e,p:p||'',g:g||''};if(idx>=0)arr[idx]=rec;else arr.push(rec);store.save(notes);panel.updateStat()}
+  function removePhrase(li,s,e){const arr=ensurePhraseStore(li);const idx=arr.findIndex(x=>x.s===s&&x.e===e);if(idx>=0)arr.splice(idx,1);store.save(notes);panel.updateStat()}
+
+  document.getElementById('phSave')?.addEventListener('click',()=>{if(phraseCurrent.line<0)return alert('请先在“词组注释模式”下选中起止字');const {line,s,e}=phraseCurrent;const text=(document.getElementById('phText')?.value||'').trim();if(!text){return alert('词组不能为空')}const p=(document.getElementById('phPinyin')?.value||'').trim();const g=(document.getElementById('phGloss')?.value||'').trim();upsertPhrase(line,s,e,p,g);if(current.line===line&&current.idx>=s&&current.idx<=e){const el=document.querySelector(`.char[data-li="${line}"][data-ci="${current.idx}"]`);if(el)showBubbleFor(line,current.idx,el)}});
+  document.getElementById('phDelete')?.addEventListener('click',()=>{if(phraseCurrent.line<0)return;const {line,s,e}=phraseCurrent;removePhrase(line,s,e);const pEl=document.getElementById('phPinyin');const gEl=document.getElementById('phGloss');if(pEl)pEl.value='';if(gEl)gEl.value='';if(current.line===line&&current.idx>=s&&current.idx<=e){const el=document.querySelector(`.char[data-li="${line}"][data-ci="${current.idx}"]`);if(el)showBubbleFor(line,current.idx,el)}});
+  </script>
+</body>
+</html>
