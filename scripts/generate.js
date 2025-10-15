@@ -340,14 +340,14 @@ function buildPageHtml(meta, content, translation){
     .char:hover{background:rgba(77,163,255,.12)}
     .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
     .char.punct{opacity:.55;cursor:default;pointer-events:none}
-    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:center}
-    .info-value{min-height:20px}
+    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:flex-start}
+    .info-value{min-height:20px;display:block;white-space:pre-wrap;word-break:break-word;line-height:1.65}
     .info-value em{color:var(--sub)}
     .bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 14px 32px rgba(0,0,0,.45);z-index:9999;pointer-events:none}
     .bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
-    .bubble .b-title{font-size:18px;font-weight:700}
+    .bubble .b-char{font-size:18px;font-weight:700}
     .bubble .b-pinyin{font-size:14px;color:var(--yellow)}
-    .bubble .b-gloss{font-size:13px;color:var(--text)}
+    .bubble .b-gloss{font-size:13px;color:var(--text);line-height:1.6}
     .bubble .b-empty{color:var(--sub);font-style:italic}
     .section{margin-top:24px}
     .section h2{margin-top:0;font-size:22px;color:var(--accent)}
@@ -402,7 +402,7 @@ function buildPageHtml(meta, content, translation){
       const bubble = document.getElementById('bubble');
       const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
+        return String(str ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
       }
       function clearActive(){
         if(!panel) return;
@@ -425,19 +425,32 @@ function buildPageHtml(meta, content, translation){
         const line = getLine(lineIndex);
         return Array.from(line.text || '').slice(start, end + 1).join('');
       }
+      function highlightRange(lineIndex, start, end){
+        if(!panel) return;
+        const lineEl = panel.querySelector('.line[data-line="' + lineIndex + '"]');
+        if(!lineEl) return;
+        for(let i = start; i <= end; i++){
+          const span = lineEl.querySelector('.char[data-index="' + i + '"]');
+          if(span) span.classList.add('active');
+        }
+      }
       function showBubble(el, payload){
         if(!bubble || !el) return;
-        bubble.innerHTML = '<div class="b-hd"><span class="b-title">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + (payload.gloss ? escapeHtml(payload.gloss) : '<span class="b-empty">暂无释义</span>') + '</div>';
+        const glossHtml = payload.gloss ? escapeHtml(payload.gloss).replace(/\n/g, '<br />') : '<span class="b-empty">暂无释义</span>';
+        bubble.innerHTML = '<div class="b-hd"><span class="b-char">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + glossHtml + '</div>';
         bubble.style.display = 'block';
-        const rect = el.getBoundingClientRect();
-        let left = rect.left + window.scrollX;
-        const top = rect.bottom + window.scrollY + 10;
-        const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 16;
-        if(left > maxLeft) left = maxLeft;
-        if(left < window.scrollX + 16) left = window.scrollX + 16;
-        bubble.style.left = left + 'px';
-        bubble.style.top = top + 'px';
-        bubble.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => {
+          const rect = el.getBoundingClientRect();
+          const pad = 10;
+          let left = rect.left + window.scrollX;
+          const top = rect.bottom + window.scrollY + pad;
+          const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 16;
+          if(left > maxLeft) left = maxLeft;
+          if(left < window.scrollX + 16) left = window.scrollX + 16;
+          bubble.style.left = left + 'px';
+          bubble.style.top = top + 'px';
+          bubble.setAttribute('aria-hidden', 'false');
+        });
       }
       function hideBubble(){
         if(!bubble) return;
@@ -452,9 +465,9 @@ function buildPageHtml(meta, content, translation){
         const cell = (line.chars || [])[charIndex] || { c: el.textContent || '' };
         const phrase = getPhrase(lineIndex, charIndex);
         clearActive();
-        el.classList.add('active');
         let payload;
         if(phrase){
+          highlightRange(lineIndex, phrase.s, phrase.e);
           payload = {
             scope: '词组',
             title: getPhraseText(lineIndex, phrase.s, phrase.e),
@@ -462,6 +475,7 @@ function buildPageHtml(meta, content, translation){
             gloss: phrase.g || cell.g || ''
           };
         }else{
+          el.classList.add('active');
           payload = {
             scope: '单字',
             title: cell.c || el.textContent || '',
