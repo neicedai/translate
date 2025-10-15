@@ -2,6 +2,8 @@
 const fs = require('fs/promises');
 const path = require('path');
 
+const PUNCTUATION_RE = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
+
 async function main(){
   const options = parseArgs(process.argv.slice(2));
   const rootDir = path.resolve(__dirname, '..');
@@ -282,6 +284,17 @@ function buildPageHtml(meta, content, translation){
   const commentHtml = content.comment ? escapeHtml(content.comment).replace(/\n/g, '<br />') : '<em>原文件未提供点评。</em>';
   const originalHtml = content.originalText ? escapeHtml(content.originalText).replace(/\n/g, '<br />') : '';
   const summaryHtml = translation.summary ? `<p class="meta">${escapeHtml(translation.summary)}</p>` : '';
+  const textPanelHtml = translation.lines.map((line, lineIndex) => {
+    const charsHtml = Array.from(line.text || '').map((ch, charIndex) => {
+      const classes = ['char'];
+      if(PUNCTUATION_RE.test(ch)){
+        classes.push('punct');
+      }
+      const safeChar = ch === ' ' ? '&nbsp;' : escapeHtml(ch);
+      return `<span class="${classes.join(' ')}" data-line="${lineIndex}" data-index="${charIndex}">${safeChar}</span>`;
+    }).join('');
+    return `<div class="line" data-line="${lineIndex}">${charsHtml}</div>`;
+  }).join('');
   const dataPayload = {
     meta: {
       file: meta.file,
@@ -326,7 +339,7 @@ function buildPageHtml(meta, content, translation){
     .char{display:inline-block;padding:4px 7px;margin:0 2px;border-radius:10px;cursor:pointer;transition:background .15s}
     .char:hover{background:rgba(77,163,255,.12)}
     .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
-    .punct{opacity:.55;cursor:default}
+    .char.punct{opacity:.55;cursor:default;pointer-events:none}
     .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:center}
     .info-value{min-height:20px}
     .info-value em{color:var(--sub)}
@@ -351,7 +364,7 @@ function buildPageHtml(meta, content, translation){
   <main class="layout">
     <section class="panel">
       <h2>逐字·词组释义</h2>
-      <div class="text-panel" id="textPanel" aria-live="polite"></div>
+      <div class="text-panel" id="textPanel" aria-live="polite">${textPanelHtml}</div>
     </section>
     <aside class="panel">
       <h2>当前释义</h2>
@@ -387,10 +400,12 @@ function buildPageHtml(meta, content, translation){
       const infoPinyin = document.getElementById('infoPinyin');
       const infoGloss = document.getElementById('infoGloss');
       const bubble = document.getElementById('bubble');
+      const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
       }
       function clearActive(){
+        if(!panel) return;
         panel.querySelectorAll('.char.active').forEach(el => el.classList.remove('active'));
       }
       function updateInfo(payload){
@@ -457,25 +472,36 @@ function buildPageHtml(meta, content, translation){
         updateInfo(payload);
         showBubble(el, payload);
       }
-      data.lines.forEach(line => {
-        const lineEl = document.createElement('div');
-        lineEl.className = 'line';
-        Array.from(line.text || '').forEach((ch, idx) => {
-          const span = document.createElement('span');
-          span.className = 'char';
-          span.textContent = ch;
-          span.dataset.line = line.index;
-          span.dataset.index = idx;
-          if(/[，。！？、；：、“”‘’（）《》〈〉【】『』]/.test(ch)){
-            span.classList.add('punct');
-            span.style.pointerEvents = 'none';
-          }else{
+      function enhancePanel(){
+        if(!panel) return;
+        if(panel.children.length){
+          panel.querySelectorAll('.char').forEach(span => {
+            if(span.classList.contains('punct')) return;
             span.addEventListener('click', handleCharClick);
-          }
-          lineEl.appendChild(span);
+          });
+          return;
+        }
+        data.lines.forEach(line => {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'line';
+          Array.from(line.text || '').forEach((ch, idx) => {
+            const span = document.createElement('span');
+            span.className = 'char';
+            span.textContent = ch === ' ' ? '\u00a0' : ch;
+            span.dataset.line = line.index;
+            span.dataset.index = idx;
+            if(punctuationRe.test(ch)){
+              span.classList.add('punct');
+            }else{
+              span.addEventListener('click', handleCharClick);
+            }
+            lineEl.appendChild(span);
+          });
+          panel.appendChild(lineEl);
         });
-        panel.appendChild(lineEl);
-      });
+      }
+
+      enhancePanel();
       document.addEventListener('click', ev => {
         if(ev.target.closest('.char')) return;
         if(ev.target.closest('.bubble')) return;
