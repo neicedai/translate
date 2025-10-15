@@ -23,7 +23,10 @@
     .btn:hover{border-color:#2d3b52}
     .btn.toggle.active{outline:2px solid var(--accent)}
 
-    .text-panel{height:70vh;overflow:auto;padding:12px;border-radius:14px;background:#0b111a;border:1px solid var(--border)}
+    .text-panel{height:70vh;overflow:auto;padding:12px;border-radius:14px;background:#0b111a;border:1px solid var(--border);position:relative}
+    .text-panel.empty{display:flex;align-items:center;justify-content:center;color:var(--sub);font-size:14px;text-align:center;padding:40px}
+    .text-panel.empty::before{content:"";position:absolute;inset:0;border-radius:14px;background:linear-gradient(135deg,rgba(35,48,68,.35),rgba(18,24,33,.8));pointer-events:none}
+    .text-panel.empty .empty-tip{position:relative;max-width:320px;line-height:1.8}
     .line{margin:10px 0;line-height:2.2}
     .char{display:inline-block;padding:2px 6px;margin:0 2px;border-radius:8px;cursor:pointer;user-select:none}
     .char:hover{background:rgba(77,163,255,.1)}
@@ -86,7 +89,9 @@
         <span class="small">渲染后点击任意字；若有词组注释，优先显示词组释义（联系上下文）。</span>
       </div>
 
-      <div class="text-panel" id="textPanel" aria-live="polite"></div>
+      <div class="text-panel empty" id="textPanel" aria-live="polite">
+        <div class="empty-tip">在上方粘贴《聊斋》原文并点击「渲染文本」，或使用「载入示例开头」。随后点按左侧文字即可开始逐字/词组注释。</div>
+      </div>
 
       <div class="settings">
         <div class="grid">
@@ -171,7 +176,7 @@
   const isPunct=ch=>/[\u3000\s，。、“”《》？！；：（）——…,.!?;:()\-\[\]{}]/.test(ch);
   const panel={updateStat(){const charCount=Object.values(notes.lines||[]).flat().filter(x=>x&&(x.p||x.g)).length;const phraseCount=Object.values(notes.phrases||{}).flat().length;$('#statSaved').textContent=`已收录：字 ${charCount} / 词组 ${phraseCount}`;$('#statTitle').textContent=notes.title?`《${notes.title}》`:'未命名';$('#statIndex').textContent=current.line>=0?`第${current.line+1}行·第${current.idx+1}字`:'—'},showChar(ch){$('#fieldChar').value=ch||'';},fillFields(note){$('#fieldPinyin').value=note?.p||'';$('#fieldGloss').value=note?.g||'';},setStatus(t){const el=$('#autoStatus');if(el)el.textContent=t||'';}};
 
-  function render(lines){const box=$('#textPanel');box.innerHTML='';(lines||[]).forEach((line,li)=>{const div=document.createElement('div');div.className='line';Array.from(line).forEach((ch,ci)=>{const span=document.createElement('span');span.textContent=ch;span.className='char'+(isPunct(ch)?' punct':'');span.setAttribute('data-li',li);span.setAttribute('data-ci',ci);if(!isPunct(ch))span.addEventListener('click',onCharClick);div.appendChild(span)});box.appendChild(div)})}
+  function render(lines){const box=$('#textPanel');box.innerHTML='';const hasContent=(lines||[]).some(line=>line&&line.trim());if(!hasContent){box.classList.add('empty');box.innerHTML='<div class="empty-tip">在上方粘贴《聊斋》原文并点击「渲染文本」，或使用「载入示例开头」。随后点按左侧文字即可开始逐字/词组注释。</div>';return}box.classList.remove('empty');(lines||[]).forEach((line,li)=>{const div=document.createElement('div');div.className='line';Array.from(line).forEach((ch,ci)=>{const span=document.createElement('span');span.textContent=ch;span.className='char'+(isPunct(ch)?' punct':'');span.setAttribute('data-li',li);span.setAttribute('data-ci',ci);if(!isPunct(ch))span.addEventListener('click',onCharClick);div.appendChild(span)});box.appendChild(div)})}
   function hitPhrase(line,idx){const arr=(notes.phrases?.[line])||[];for(const ph of arr){if(idx>=ph.s&&idx<=ph.e)return ph}return null}
   function getPhrase(line,s,e){const arr=(notes.phrases?.[line])||[];return arr.find(ph=>ph.s===s&&ph.e===e)||null}
   function getSpanText(li,s,e){return (notes.lines?.[li]||[]).slice(s,e+1).map(x=>x?.c||'').join('')}
@@ -185,7 +190,7 @@
 
   $('#titleInput').addEventListener('input',()=>{notes.title=$('#titleInput').value.trim();store.save(notes);panel.updateStat()});
   $('#loadSample').addEventListener('click',()=>{const sampleTitle='考城隍（节选）';const sample=['昔有儒生，孤介寡合。','夜半梦至一城，市肆如昼。','忽有吏呼至庭，若将试者。'].join('\n');$('#titleInput').value=sampleTitle;$('#rawInput').value=sample});
-  $('#clearPage').addEventListener('click',()=>{if(confirm('清空将移除本页文本、词组与所有注释（不会删除导出的JSON）。确定吗？')){notes={};store.clear();$('#titleInput').value='';$('#rawInput').value='';$('#textPanel').innerHTML='';current={line:-1,idx:-1,char:''};panel.updateStat()}});
+  $('#clearPage').addEventListener('click',()=>{if(confirm('清空将移除本页文本、词组与所有注释（不会删除导出的JSON）。确定吗？')){notes={};store.clear();$('#titleInput').value='';$('#rawInput').value='';render([]);current={line:-1,idx:-1,char:''};panel.updateStat()}});
   $('#fileInput').addEventListener('change',async(e)=>{const file=e.target.files?.[0];if(!file)return;try{const text=await file.text();const obj=JSON.parse(text);if(!obj||!Array.isArray(obj.lines))throw new Error('格式错误');notes={title:obj.title||'',lines:obj.lines,phrases:obj.phrases||{}};store.save(notes);$('#titleInput').value=notes.title||'';const raw=(notes.lines||[]).map(r=>r.map(x=>x?.c||'').join('')).join('\n');$('#rawInput').value=raw;render(raw.split('\n'));panel.updateStat()}catch(err){alert('导入失败：'+err.message)}e.target.value=''});
   $('#exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(notes,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);const title=notes.title?notes.title.replace(/[\\/:*?"<>|]/g,'_'):'聊斋注释';a.download=`${title}_逐字注释.json`;a.click();URL.revokeObjectURL(a.href)});
 
