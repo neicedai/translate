@@ -119,6 +119,7 @@
       downloadUrls: new Map(),
       navUrl: null
     };
+    const PUNCT_RE = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
 
     function escapeHtml(str=''){
       return str.replace(/[&<>"']/g, ch => ({
@@ -370,6 +371,17 @@
       const commentHtml = content.comment ? escapeHtml(content.comment).replace(/\n/g, '<br />') : '<em>原文件未提供点评。</em>';
       const originalHtml = content.originalText ? escapeHtml(content.originalText).replace(/\n/g, '<br />') : '';
       const summaryHtml = translation.summary ? `<p class="meta">${escapeHtml(translation.summary)}</p>` : '';
+      const textPanelHtml = translation.lines.map((line, lineIndex) => {
+        const charsHtml = Array.from(line.text || '').map((ch, charIndex) => {
+          const classes = ['char'];
+          if(PUNCT_RE.test(ch)){
+            classes.push('punct');
+          }
+          const safeChar = ch === ' ' ? '&nbsp;' : escapeHtml(ch);
+          return `<span class="${classes.join(' ')}" data-line="${lineIndex}" data-index="${charIndex}">${safeChar}</span>`;
+        }).join('');
+        return `<div class="line" data-line="${lineIndex}">${charsHtml}</div>`;
+      }).join('');
       const dataPayload = {
         meta: {
           file: meta.file,
@@ -414,10 +426,18 @@
     .char{display:inline-block;padding:4px 7px;margin:0 2px;border-radius:10px;cursor:pointer;transition:background .15s}
     .char:hover{background:rgba(77,163,255,.12)}
     .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
-    .punct{opacity:.55;cursor:default}
-    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:center}
-    .info-value{min-height:20px}
-    .info-value em{color:var(--sub)}
+    .char.punct{opacity:.55;cursor:default;pointer-events:none}
+    .info-panel{display:flex;flex-direction:column;gap:16px}
+    .info-meta{display:flex;gap:8px;flex-wrap:wrap}
+    .info-chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid var(--border);background:var(--chip);color:var(--sub);font-size:12px}
+    .info-chip.accent{background:rgba(77,163,255,.15);color:var(--text);border-color:rgba(77,163,255,.4)}
+    .info-section{border:1px solid rgba(77,163,255,.14);background:rgba(77,163,255,.06);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+    .info-section[hidden]{display:none}
+    .info-section h3{margin:0;font-size:15px;color:var(--accent)}
+    .info-row{display:grid;grid-template-columns:66px 1fr;gap:8px;align-items:flex-start;font-size:14px}
+    .info-label{color:var(--sub)}
+    .info-value{color:var(--text);word-break:break-word;white-space:pre-wrap}
+    .info-muted{color:var(--sub);font-style:italic}
     .bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 14px 32px rgba(0,0,0,.45);z-index:9999;pointer-events:none}
     .bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
     .bubble .b-title{font-size:18px;font-weight:700}
@@ -439,15 +459,25 @@
   <main class="layout">
     <section class="panel">
       <h2>逐字·词组释义</h2>
-      <div class="text-panel" id="textPanel" aria-live="polite"></div>
+      <div class="text-panel" id="textPanel" aria-live="polite">${textPanelHtml}</div>
     </section>
-    <aside class="panel">
+    <aside class="panel info-panel">
       <h2>当前释义</h2>
-      <div class="info-grid">
-        <span>类型</span><span class="info-value" id="infoScope"><em>点击左侧文字开始</em></span>
-        <span>内容</span><span class="info-value" id="infoTarget">—</span>
-        <span>拼音</span><span class="info-value" id="infoPinyin">—</span>
-        <span>释义</span><span class="info-value" id="infoGloss">—</span>
+      <div class="info-meta">
+        <span class="info-chip" id="infoLine">未选择</span>
+        <span class="info-chip" id="infoIndex">—</span>
+      </div>
+      <div class="info-section" id="phraseSection" hidden>
+        <h3>词组释义</h3>
+        <div class="info-row"><span class="info-label">词组</span><span class="info-value" id="infoPhraseTarget">—</span></div>
+        <div class="info-row"><span class="info-label">拼音</span><span class="info-value" id="infoPhrasePinyin">—</span></div>
+        <div class="info-row"><span class="info-label">释义</span><span class="info-value" id="infoPhraseGloss"><span class="info-muted">暂无释义</span></span></div>
+      </div>
+      <div class="info-section" id="charSection">
+        <h3>单字释义</h3>
+        <div class="info-row"><span class="info-label">字</span><span class="info-value" id="infoCharTarget">—</span></div>
+        <div class="info-row"><span class="info-label">拼音</span><span class="info-value" id="infoCharPinyin">—</span></div>
+        <div class="info-row"><span class="info-label">释义</span><span class="info-value" id="infoCharGloss"><span class="info-muted">暂无释义</span></span></div>
       </div>
     </aside>
   </main>
@@ -470,22 +500,67 @@
     (function(){
       const data = window.PAGE_DATA || { lines: [] };
       const panel = document.getElementById('textPanel');
-      const infoScope = document.getElementById('infoScope');
-      const infoTarget = document.getElementById('infoTarget');
-      const infoPinyin = document.getElementById('infoPinyin');
-      const infoGloss = document.getElementById('infoGloss');
+      const infoLine = document.getElementById('infoLine');
+      const infoIndex = document.getElementById('infoIndex');
+      const phraseSection = document.getElementById('phraseSection');
+      const infoPhraseTarget = document.getElementById('infoPhraseTarget');
+      const infoPhrasePinyin = document.getElementById('infoPhrasePinyin');
+      const infoPhraseGloss = document.getElementById('infoPhraseGloss');
+      const infoCharTarget = document.getElementById('infoCharTarget');
+      const infoCharPinyin = document.getElementById('infoCharPinyin');
+      const infoCharGloss = document.getElementById('infoCharGloss');
       const bubble = document.getElementById('bubble');
+      const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
       }
       function clearActive(){
+        if(!panel) return;
         panel.querySelectorAll('.char.active').forEach(el => el.classList.remove('active'));
       }
-      function updateInfo(payload){
-        infoScope.textContent = payload.scope || '—';
-        infoTarget.textContent = payload.title || '—';
-        infoPinyin.textContent = payload.pinyin || '—';
-        infoGloss.textContent = payload.gloss || '—';
+      function setText(el, value, fallback='—'){
+        if(!el) return;
+        const str = typeof value === 'string' ? value.trim() : '';
+        el.textContent = str ? str : fallback;
+      }
+      function setGloss(el, value){
+        if(!el) return;
+        const str = typeof value === 'string' ? value.trim() : '';
+        if(!str){
+          el.innerHTML = '<span class="info-muted">暂无释义</span>';
+        }else{
+          el.innerHTML = escapeHtml(str).replace(/\n/g, '<br />');
+        }
+      }
+      function updateInfo(detail){
+        if(!detail){
+          setText(infoLine, '', '未选择');
+          setText(infoIndex, '', '—');
+          setText(infoCharTarget, '', '—');
+          setText(infoCharPinyin, '', '—');
+          setGloss(infoCharGloss, '');
+          phraseSection.hidden = true;
+          setGloss(infoPhraseGloss, '');
+          setText(infoPhraseTarget, '', '—');
+          setText(infoPhrasePinyin, '', '—');
+          return;
+        }
+        setText(infoLine, '第' + (detail.lineIndex + 1) + '行', '未选择');
+        setText(infoIndex, '第' + (detail.charIndex + 1) + '字', '—');
+        setText(infoCharTarget, detail.char || '', '—');
+        setText(infoCharPinyin, detail.charPinyin || '', '—');
+        setGloss(infoCharGloss, detail.charGloss || '');
+        if(detail.phrase){
+          phraseSection.hidden = false;
+          setText(infoPhraseTarget, detail.phrase.text || '', '—');
+          setText(infoPhrasePinyin, detail.phrase.pinyin || '', '—');
+          setGloss(infoPhraseGloss, detail.phrase.gloss || '');
+        }else{
+          phraseSection.hidden = true;
+          setGloss(infoPhraseGloss, '');
+          setText(infoPhraseTarget, '', '—');
+          setText(infoPhrasePinyin, '', '—');
+        }
       }
       function getLine(lineIndex){
         return data.lines[lineIndex] || { text: '', chars: [], phrases: [] };
@@ -526,55 +601,81 @@
         const phrase = getPhrase(lineIndex, charIndex);
         clearActive();
         el.classList.add('active');
-        let payload;
+        const charText = cell.c || el.textContent || '';
+        const charPinyin = cell.p || '';
+        const charGloss = cell.g || '';
+        const detail = {
+          lineIndex,
+          charIndex,
+          char: charText,
+          charPinyin,
+          charGloss,
+          phrase: null
+        };
+        let bubblePayload;
         if(phrase){
-          payload = {
-            scope: '词组',
-            title: getPhraseText(lineIndex, phrase.s, phrase.e),
-            pinyin: phrase.p || cell.p || '',
-            gloss: phrase.g || cell.g || ''
+          const phraseText = getPhraseText(lineIndex, phrase.s, phrase.e);
+          detail.phrase = {
+            text: phraseText,
+            pinyin: phrase.p || '',
+            gloss: phrase.g || ''
+          };
+          bubblePayload = {
+            title: phraseText,
+            pinyin: detail.phrase.pinyin || charPinyin,
+            gloss: detail.phrase.gloss || charGloss
           };
         }else{
-          payload = {
-            scope: '单字',
-            title: cell.c || el.textContent || '',
-            pinyin: cell.p || '',
-            gloss: cell.g || ''
+          bubblePayload = {
+            title: charText,
+            pinyin: charPinyin,
+            gloss: charGloss
           };
         }
-        updateInfo(payload);
-        showBubble(el, payload);
+        updateInfo(detail);
+        showBubble(el, bubblePayload);
       }
-      data.lines.forEach(line => {
-        const lineEl = document.createElement('div');
-        lineEl.className = 'line';
-        Array.from(line.text || '').forEach((ch, idx) => {
-          const span = document.createElement('span');
-          span.className = 'char';
-          span.textContent = ch;
-          span.dataset.line = line.index;
-          span.dataset.index = idx;
-          if(/[，。！？、；：、“”‘’（）《》〈〉【】『』]/.test(ch)){
-            span.classList.add('punct');
-            span.style.pointerEvents = 'none';
-          }else{
+      function enhancePanel(){
+        if(!panel) return;
+        if(panel.children.length){
+          panel.querySelectorAll('.char').forEach(span => {
+            if(span.classList.contains('punct')) return;
             span.addEventListener('click', handleCharClick);
-          }
-          lineEl.appendChild(span);
+          });
+          return;
+        }
+        data.lines.forEach(line => {
+          const lineEl = document.createElement('div');
+          lineEl.className = 'line';
+          Array.from(line.text || '').forEach((ch, idx) => {
+            const span = document.createElement('span');
+            span.className = 'char';
+            span.textContent = ch === ' ' ? '\u00a0' : ch;
+            span.dataset.line = line.index;
+            span.dataset.index = idx;
+            if(punctuationRe.test(ch)){
+              span.classList.add('punct');
+            }else{
+              span.addEventListener('click', handleCharClick);
+            }
+            lineEl.appendChild(span);
+          });
+          panel.appendChild(lineEl);
         });
-        panel.appendChild(lineEl);
-      });
+      }
+
+      enhancePanel();
       document.addEventListener('click', ev => {
         if(ev.target.closest('.char')) return;
         if(ev.target.closest('.bubble')) return;
         clearActive();
-        updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+        updateInfo(null);
         hideBubble();
       });
       document.addEventListener('keydown', ev => {
         if(ev.key === 'Escape'){
           clearActive();
-          updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+          updateInfo(null);
           hideBubble();
         }
       });
