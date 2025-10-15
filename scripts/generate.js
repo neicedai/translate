@@ -122,9 +122,14 @@ function parseContent(text){
       vernacular = text.slice(idxWhite + whiteMark.length);
     }
   }
-  const originalLines = original.split(/\r?\n+/).map(s => s.trim()).filter(Boolean);
+  const rawLines = original.split(/\r?\n+/).map(s => s.trim());
+  const originalLines = rawLines
+    .map(line => line.replace(/^【原文】\s*/, '').trim())
+    .filter(Boolean)
+    .filter(line => !/^【.+?】$/.test(line) && !/^标题[:：]/.test(line));
+  const originalText = originalLines.join('\n');
   return {
-    originalText: original.trim(),
+    originalText,
     originalLines,
     vernacular: vernacular.trim(),
     comment: comment.trim()
