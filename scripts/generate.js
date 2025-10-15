@@ -402,7 +402,7 @@ function buildPageHtml(meta, content, translation){
       const bubble = document.getElementById('bubble');
       const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
       }
       function clearActive(){
         if(!panel) return;
