@@ -195,12 +195,78 @@ function createEmptyTranslation(content){
   };
 }
 
+function pickString(source, keys){
+  if(!source) return '';
+  for(const key of keys){
+    const value = source[key];
+    if(typeof value === 'string'){
+      const trimmed = value.trim();
+      if(trimmed) return trimmed;
+    }
+  }
+  return '';
+}
+
+function pickInteger(source, keys){
+  if(!source) return null;
+  for(const key of keys){
+    if(!Object.prototype.hasOwnProperty.call(source, key)) continue;
+    const value = Number(source[key]);
+    if(Number.isInteger(value)) return value;
+  }
+  return null;
+}
+
+function pickArray(source, keys){
+  if(!source) return null;
+  for(const key of keys){
+    const value = source[key];
+    if(Array.isArray(value)) return value;
+  }
+  return null;
+}
+
+const LINE_INDEX_KEYS = ['index', 'lineIndex', 'line', 'lineNo', 'lineNumber'];
+
+function resolveLineEntries(payload){
+  const visited = new Set();
+  const queue = [payload];
+  while(queue.length){
+    const current = queue.shift();
+    if(!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    const candidateKeys = ['lines', 'entries', 'items', 'segments', 'rows', 'lineItems', 'data', 'result', 'results', 'payload'];
+    for(const key of candidateKeys){
+      if(!Object.prototype.hasOwnProperty.call(current, key)) continue;
+      const value = current[key];
+      if(Array.isArray(value)){
+        if(value.some(item => pickInteger(item, LINE_INDEX_KEYS) !== null || typeof item?.text === 'string')){
+          return value;
+        }
+      }else if(value && typeof value === 'object'){
+        queue.push(value);
+      }
+    }
+    for(const value of Object.values(current)){
+      if(Array.isArray(value)){
+        if(value.some(item => pickInteger(item, LINE_INDEX_KEYS) !== null || typeof item?.text === 'string')){
+          return value;
+        }
+      }else if(value && typeof value === 'object'){
+        queue.push(value);
+      }
+    }
+  }
+  return [];
+}
+
 function normaliseTranslation(content, payload){
   const lineMap = new Map();
-  if(Array.isArray(payload?.lines)){
-    payload.lines.forEach(item => {
+  const payloadLines = resolveLineEntries(payload);
+  if(Array.isArray(payloadLines)){
+    payloadLines.forEach(item => {
       if(!item) return;
-      const idx = Number.isInteger(item.index) ? item.index : Number.isInteger(item.lineIndex) ? item.lineIndex : Number.isInteger(item.line) ? item.line : null;
+      const idx = pickInteger(item, LINE_INDEX_KEYS);
       if(idx === null) return;
       lineMap.set(idx, item);
     });
@@ -211,41 +277,46 @@ function normaliseTranslation(content, payload){
     const phrases = [];
     const payloadLine = lineMap.get(index);
     if(payloadLine){
-      if(Array.isArray(payloadLine.chars)){
-        payloadLine.chars.forEach(entry => {
+      const charEntries = pickArray(payloadLine, ['chars', 'characters', 'charList', 'charItems', 'items', 'cells', 'tokens']);
+      if(Array.isArray(charEntries)){
+        charEntries.forEach(entry => {
           if(!entry) return;
-          const i = Number(entry.i);
-          if(!Number.isInteger(i) || i < 0 || i >= chars.length) return;
-          if(entry.ch && entry.ch !== charArr[i]) return;
-          if(typeof entry.p === 'string' && entry.p.trim()){
-            chars[i].p = entry.p.trim();
+          const i = pickInteger(entry, ['i', 'index', 'idx', 'position', 'offset']);
+          if(i === null || i < 0 || i >= chars.length) return;
+          const entryChar = pickString(entry, ['ch', 'char', 'character', 'c', 'text', 'value']);
+          if(entryChar && entryChar !== charArr[i]) return;
+          const pVal = pickString(entry, ['p', 'pinyin', 'py', 'pin']);
+          if(pVal){
+            chars[i].p = pVal;
           }
-          if(typeof entry.g === 'string' && entry.g.trim()){
-            chars[i].g = entry.g.trim();
+          const gVal = pickString(entry, ['g', 'gloss', 'meaning', 'translation', 'explanation', 'note', 'interpretation', 'definition', 'def', 'annotation', 'comment', 'remark', 'explain', 'meaningText']);
+          if(gVal){
+            chars[i].g = gVal;
           }
         });
       }
-      if(Array.isArray(payloadLine.phrases)){
-        payloadLine.phrases.forEach(ph => {
+      const phraseEntries = pickArray(payloadLine, ['phrases', 'phraseList', 'groups', 'chunks', 'segments', 'terms', 'words']);
+      if(Array.isArray(phraseEntries)){
+        phraseEntries.forEach(ph => {
           if(!ph) return;
-          let s = Number(ph.s);
-          let e = Number(ph.e);
-          if(!Number.isInteger(s) || !Number.isInteger(e)) return;
+          let s = pickInteger(ph, ['s', 'start', 'from', 'begin', 'beginIndex', 'offset', 'pos']);
+          let e = pickInteger(ph, ['e', 'end', 'to', 'finish', 'stop', 'endIndex', 'limit']);
+          if(s === null || e === null) return;
           if(s > e) [s, e] = [e, s];
           if(s < 0 || e >= chars.length) return;
           phrases.push({
             s,
             e,
-            p: typeof ph.p === 'string' ? ph.p.trim() : '',
-            g: typeof ph.g === 'string' ? ph.g.trim() : ''
+            p: pickString(ph, ['p', 'pinyin', 'py', 'pin']),
+            g: pickString(ph, ['g', 'gloss', 'meaning', 'translation', 'explanation', 'note', 'interpretation', 'definition', 'def', 'annotation', 'comment', 'remark', 'explain', 'meaningText'])
           });
         });
       }
     }
     return { text, chars, phrases };
   });
-  const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : '';
-  const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : '';
+  const summary = pickString(payload, ['summary', 'desc', 'description', 'overview', 'abstract', 'synopsis', 'brief']);
+  const title = pickString(payload, ['title', 'name', 'heading', 'subject', 'label', 'caption']);
   return { title, lines, summary };
 }
 
