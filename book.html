@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>聊斋志异 · 文言翻译生成器</title>
+  <title>聊斋志异 · 逐字注释生成器</title>
   <style>
     :root{--bg:#070c13;--card:#101822;--border:#1b2634;--text:#e8efff;--muted:#8da0bf;--accent:#4da3ff;--chip:#192537;--success:#34d399;--warn:#fbbf24;--error:#f87171;--mono:#1b2535;}
     *{box-sizing:border-box}
@@ -56,10 +56,10 @@
 </head>
 <body>
   <header>
-    <h1>《聊斋志异》文言文 · DeepSeek 翻译批量生成</h1>
+    <h1>《聊斋志异》文言文 · DeepSeek 逐字注释批量生成</h1>
     <p>
-      本页会读取 <code>book</code> 目录下的所有 <code>.txt</code> 文件，先选择需要翻译的篇目，再调用 DeepSeek API 将文言段落逐段翻成现代汉语。
-      生成的译文会与原文件中的白话版本、点评整合，导出为新的 HTML 页面，并可额外生成一个导航页便于离线浏览。
+      本页会读取 <code>book</code> 目录下的所有 <code>.txt</code> 文件，选择篇目后调用 DeepSeek API，生成与 <code>tran.html</code> 类似的逐字与词组释义。
+      自动注释的结果会与原文件中的白话文、点评整合导出为新的 HTML 页面，并可额外生成一个导航页便于离线浏览。
     </p>
   </header>
 
@@ -83,22 +83,22 @@
   </section>
 
   <section class="card" aria-label="篇目选择">
-    <h2>第二步：选择要翻译的篇目</h2>
+    <h2>第二步：选择要处理的篇目</h2>
     <div class="file-list" id="fileList"></div>
     <div class="btn-row">
       <button id="selectAll">全选</button>
       <button id="clearSelection" class="ghost">清除选择</button>
-      <button id="generateSelected" class="primary">生成选中篇目的译文页面</button>
+      <button id="generateSelected" class="primary">生成选中篇目的逐字注释页面</button>
       <span class="status" id="globalStatus"></span>
     </div>
   </section>
 
   <section class="card" aria-label="生成结果">
-    <h2>第三步：下载译文页面与导航</h2>
+    <h2>第三步：下载注释页面与导航</h2>
     <div id="results" class="result-grid" aria-live="polite"></div>
     <div id="navSection" class="nav-preview" hidden>
       <h3>自动导航页</h3>
-      <p class="status">下载各篇译文后，可同时保存此导航页（含所有链接）。</p>
+      <p class="status">下载各篇注释后，可同时保存此导航页（含所有链接）。</p>
       <div class="downloads">
         <a id="navDownload" download="liaozhai-book-index.html">下载导航页 HTML</a>
       </div>
@@ -252,21 +252,34 @@
     async function translateWithDeepseek(cfg, meta, content){
       const req = {
         title: meta.title || meta.file,
-        paragraphs: content.originalLines
+        lines: content.originalLines.map((text, index) => ({
+          index,
+          text,
+          charList: Array.from(text).map((ch, i) => ({ i, ch }))
+        }))
       };
+      const systemPrompt = [
+        '你是严谨的文言注释助手，请对提供的每一行文言文生成逐字及重点词组释义。',
+        '要求：',
+        '1. 仅使用给定的 charList 中的字符与索引，禁止新增或改写原文；',
+        '2. 若能判断词组释义，请在 phrases 中记录起止索引，并给出简明释义；',
+        '3. 对缺乏明确释义的字词可留空；',
+        '4. 不要输出整段白话文翻译；',
+        '5. 严格只返回 JSON，格式：{"title":"注释标题(可选)","summary":"可选概述","lines":[{"index":行号,"chars":[{"i":索引,"p":"拼音(可选)","g":"释义(可选)"}],"phrases":[{"s":起,"e":止,"p":"拼音(可选)","g":"释义(可选)"}]}]}
+      ].join('\n');
       const body = {
         model: cfg.model,
         messages: [
           {
             role: 'system',
-            content: '你是严谨的文言文翻译助手。请把提供的整篇文言文逐段翻译成现代汉语，保留原段落顺序。\n严格只返回 JSON：{"title":"译文标题","sections":[{"original":"原段","translation":"现代汉语"}],"summary":"可选概述"}。不要额外添加注释、引号或 Markdown。'
+            content: systemPrompt
           },
           {
             role: 'user',
             content: JSON.stringify(req)
           }
         ],
-        temperature: 0.3,
+        temperature: 0.2,
         response_format: { type: 'json_object' }
       };
       const res = await fetch(cfg.url, {
@@ -294,71 +307,125 @@
     }
 
     function normaliseTranslation(content, payload){
-      const sections = [];
-      if(Array.isArray(payload?.sections)){
-        payload.sections.forEach(item => {
-          if(!item) return;
-          const original = (typeof item.original === 'string' && item.original.trim()) || '';
-          const translation = (typeof item.translation === 'string' && item.translation.trim()) || '';
-          if(original || translation){
-            sections.push({ original, translation });
-          }
-        });
-      }
-      if(!sections.length && Array.isArray(payload?.lines)){
+      const lineMap = new Map();
+      if(Array.isArray(payload?.lines)){
         payload.lines.forEach(item => {
           if(!item) return;
-          const original = (typeof item.original === 'string' && item.original.trim()) || (Number.isInteger(item.index) ? content.originalLines[item.index] || '' : '');
-          const translation = (typeof item.translation === 'string' && item.translation.trim()) || '';
-          if(original || translation){
-            sections.push({ original, translation });
+          const idx = Number.isInteger(item.index) ? item.index : Number.isInteger(item.lineIndex) ? item.lineIndex : Number.isInteger(item.line) ? item.line : null;
+          if(idx === null) return;
+          lineMap.set(idx, item);
+        });
+      }
+      const lines = content.originalLines.map((text, index) => {
+        const charArr = Array.from(text);
+        const chars = charArr.map(ch => ({ c: ch, p: '', g: '' }));
+        const phrases = [];
+        const payloadLine = lineMap.get(index);
+        if(payloadLine){
+          if(Array.isArray(payloadLine.chars)){
+            payloadLine.chars.forEach(entry => {
+              if(!entry) return;
+              const i = Number(entry.i);
+              if(!Number.isInteger(i) || i < 0 || i >= chars.length) return;
+              if(entry.ch && entry.ch !== charArr[i]) return;
+              if(typeof entry.p === 'string' && entry.p.trim()){
+                chars[i].p = entry.p.trim();
+              }
+              if(typeof entry.g === 'string' && entry.g.trim()){
+                chars[i].g = entry.g.trim();
+              }
+            });
           }
-        });
-      }
-      if(!sections.length){
-        content.originalLines.forEach(line => {
-          sections.push({ original: line, translation: '' });
-        });
-      }
+          if(Array.isArray(payloadLine.phrases)){
+            payloadLine.phrases.forEach(ph => {
+              if(!ph) return;
+              let s = Number(ph.s);
+              let e = Number(ph.e);
+              if(!Number.isInteger(s) || !Number.isInteger(e)) return;
+              if(s > e) [s, e] = [e, s];
+              if(s < 0 || e >= chars.length) return;
+              phrases.push({
+                s,
+                e,
+                p: typeof ph.p === 'string' ? ph.p.trim() : '',
+                g: typeof ph.g === 'string' ? ph.g.trim() : ''
+              });
+            });
+          }
+        }
+        return { text, chars, phrases };
+      });
       const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : '';
       const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : '';
-      return { title, sections, summary };
+      return { title, lines, summary };
     }
 
     function buildPageHtml(meta, content, translation){
       const docTitle = translation.title || (meta.title || meta.file.replace(/\.txt$/i, ''));
       const now = new Date();
       const stamp = now.toLocaleString();
-      const translationHtml = translation.sections.map(sec => `
-        <article class="line-pair">
-          ${sec.original ? `<p><strong>原文</strong>：${escapeHtml(sec.original)}</p>` : ''}
-          ${sec.translation ? `<p><strong>译文</strong>：${escapeHtml(sec.translation)}</p>` : ''}
-        </article>
-      `).join('\n');
       const vernacularHtml = content.vernacular ? escapeHtml(content.vernacular).replace(/\n/g, '<br />') : '<em>原文件未提供白话文内容。</em>';
       const commentHtml = content.comment ? escapeHtml(content.comment).replace(/\n/g, '<br />') : '<em>原文件未提供点评。</em>';
       const originalHtml = content.originalText ? escapeHtml(content.originalText).replace(/\n/g, '<br />') : '';
       const summaryHtml = translation.summary ? `<p class="meta">${escapeHtml(translation.summary)}</p>` : '';
+      const dataPayload = {
+        meta: {
+          file: meta.file,
+          generatedAt: stamp
+        },
+        lines: translation.lines.map((line, index) => ({
+          index,
+          text: line.text,
+          chars: line.chars.map(cell => ({
+            c: cell.c,
+            p: cell.p || '',
+            g: cell.g || ''
+          })),
+          phrases: line.phrases.map(ph => ({
+            s: ph.s,
+            e: ph.e,
+            p: ph.p || '',
+            g: ph.g || ''
+          }))
+        }))
+      };
+      const dataScript = JSON.stringify(dataPayload).replace(/</g, '\\u003c');
       return `<!doctype html>
 <html lang="zh-Hans">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${docTitle} · 文言译文</title>
+  <title>${docTitle} · 逐字注释</title>
   <style>
-    body{margin:0;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#0b111a;color:#e8efff;line-height:1.8;padding:26px}
-    h1{margin-top:0;font-size:28px}
-    section{margin:28px 0;}
-    .meta{color:#8da0bf;font-size:13px;margin-top:6px}
-    article.line-pair{background:rgba(77,163,255,.08);border:1px solid rgba(77,163,255,.12);border-radius:14px;padding:14px 16px;margin-bottom:12px}
-    article.line-pair p{margin:0 0 6px 0;font-size:15px}
-    article.line-pair p:last-child{margin-bottom:0}
-    strong{color:#4da3ff}
-    .panel{background:#0f1a29;border:1px solid #1b2634;border-radius:16px;padding:18px}
-    .panel h2{margin-top:0;color:#4da3ff;font-size:20px}
-    .panel p{white-space:pre-wrap;margin:0;font-size:15px}
-    a{color:#4da3ff}
-    footer{margin-top:40px;font-size:12px;color:#8da0bf}
+    :root{--bg:#0b0f14;--card:#121821;--border:#1c2431;--text:#e7eef7;--sub:#9db2cf;--accent:#4da3ff;--hl:#1d2a3c;--chip:#22334b;--yellow:#ffd166;}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(180deg,#0b0f14,#0f1621);color:var(--text);line-height:1.8;padding:26px}
+    header{margin-bottom:24px}
+    h1{margin:0;font-size:28px}
+    .meta{color:var(--sub);font-size:13px;margin-top:6px}
+    .layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,0.8fr);gap:20px;align-items:start}
+    .panel{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px}
+    .panel h2{margin-top:0;font-size:20px;color:var(--accent)}
+    .text-panel{background:#0b111a;border:1px solid var(--border);border-radius:16px;padding:16px;height:70vh;overflow:auto}
+    .line{margin-bottom:14px;font-size:20px;line-height:1.9}
+    .line:last-child{margin-bottom:0}
+    .char{display:inline-block;padding:4px 7px;margin:0 2px;border-radius:10px;cursor:pointer;transition:background .15s}
+    .char:hover{background:rgba(77,163,255,.12)}
+    .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
+    .punct{opacity:.55;cursor:default}
+    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:center}
+    .info-value{min-height:20px}
+    .info-value em{color:var(--sub)}
+    .bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 14px 32px rgba(0,0,0,.45);z-index:9999;pointer-events:none}
+    .bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+    .bubble .b-title{font-size:18px;font-weight:700}
+    .bubble .b-pinyin{font-size:14px;color:var(--yellow)}
+    .bubble .b-gloss{font-size:13px;color:var(--text)}
+    .bubble .b-empty{color:var(--sub);font-style:italic}
+    .section{margin-top:24px}
+    .section h2{margin-top:0;font-size:22px;color:var(--accent)}
+    .section p{margin:0;font-size:15px;white-space:pre-wrap}
+    footer{margin-top:36px;font-size:12px;color:var(--sub)}
   </style>
 </head>
 <body>
@@ -367,23 +434,150 @@
     ${summaryHtml}
     <p class="meta">生成时间：${escapeHtml(stamp)} · 来源文件：${escapeHtml(meta.file)}</p>
   </header>
-  <section>
-    <h2>DeepSeek 现代汉语译文</h2>
-    ${translationHtml || '<p>（暂无译文内容）</p>'}
-  </section>
-  <section class="panel">
+  <main class="layout">
+    <section class="panel">
+      <h2>逐字·词组释义</h2>
+      <div class="text-panel" id="textPanel" aria-live="polite"></div>
+    </section>
+    <aside class="panel">
+      <h2>当前释义</h2>
+      <div class="info-grid">
+        <span>类型</span><span class="info-value" id="infoScope"><em>点击左侧文字开始</em></span>
+        <span>内容</span><span class="info-value" id="infoTarget">—</span>
+        <span>拼音</span><span class="info-value" id="infoPinyin">—</span>
+        <span>释义</span><span class="info-value" id="infoGloss">—</span>
+      </div>
+    </aside>
+  </main>
+  <section class="panel section">
     <h2>原文</h2>
     <p>${originalHtml}</p>
   </section>
-  <section class="panel">
+  <section class="panel section">
     <h2>原书白话文</h2>
     <p>${vernacularHtml}</p>
   </section>
-  <section class="panel">
+  <section class="panel section">
     <h2>原书点评</h2>
     <p>${commentHtml}</p>
   </section>
-  <footer>本页面由《聊斋志异》文言翻译生成器自动生成。</footer>
+  <footer>本页面由《聊斋志异》逐字注释生成器自动生成。</footer>
+  <div id="bubble" class="bubble" role="status" aria-hidden="true"></div>
+  <script>window.PAGE_DATA=${dataScript};</script>
+  <script>
+    (function(){
+      const data = window.PAGE_DATA || { lines: [] };
+      const panel = document.getElementById('textPanel');
+      const infoScope = document.getElementById('infoScope');
+      const infoTarget = document.getElementById('infoTarget');
+      const infoPinyin = document.getElementById('infoPinyin');
+      const infoGloss = document.getElementById('infoGloss');
+      const bubble = document.getElementById('bubble');
+      function escapeHtml(str){
+        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c]));
+      }
+      function clearActive(){
+        panel.querySelectorAll('.char.active').forEach(el => el.classList.remove('active'));
+      }
+      function updateInfo(payload){
+        infoScope.textContent = payload.scope || '—';
+        infoTarget.textContent = payload.title || '—';
+        infoPinyin.textContent = payload.pinyin || '—';
+        infoGloss.textContent = payload.gloss || '—';
+      }
+      function getLine(lineIndex){
+        return data.lines[lineIndex] || { text: '', chars: [], phrases: [] };
+      }
+      function getPhrase(lineIndex, charIndex){
+        const line = getLine(lineIndex);
+        return (line.phrases || []).find(ph => ph.s <= charIndex && ph.e >= charIndex) || null;
+      }
+      function getPhraseText(lineIndex, start, end){
+        const line = getLine(lineIndex);
+        return Array.from(line.text || '').slice(start, end + 1).join('');
+      }
+      function showBubble(el, payload){
+        if(!bubble || !el) return;
+        bubble.innerHTML = '<div class="b-hd"><span class="b-title">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + (payload.gloss ? escapeHtml(payload.gloss) : '<span class="b-empty">暂无释义</span>') + '</div>';
+        bubble.style.display = 'block';
+        const rect = el.getBoundingClientRect();
+        let left = rect.left + window.scrollX;
+        const top = rect.bottom + window.scrollY + 10;
+        const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 16;
+        if(left > maxLeft) left = maxLeft;
+        if(left < window.scrollX + 16) left = window.scrollX + 16;
+        bubble.style.left = left + 'px';
+        bubble.style.top = top + 'px';
+        bubble.setAttribute('aria-hidden', 'false');
+      }
+      function hideBubble(){
+        if(!bubble) return;
+        bubble.style.display = 'none';
+        bubble.setAttribute('aria-hidden', 'true');
+      }
+      function handleCharClick(ev){
+        const el = ev.currentTarget;
+        const lineIndex = Number(el.dataset.line);
+        const charIndex = Number(el.dataset.index);
+        const line = getLine(lineIndex);
+        const cell = (line.chars || [])[charIndex] || { c: el.textContent || '' };
+        const phrase = getPhrase(lineIndex, charIndex);
+        clearActive();
+        el.classList.add('active');
+        let payload;
+        if(phrase){
+          payload = {
+            scope: '词组',
+            title: getPhraseText(lineIndex, phrase.s, phrase.e),
+            pinyin: phrase.p || cell.p || '',
+            gloss: phrase.g || cell.g || ''
+          };
+        }else{
+          payload = {
+            scope: '单字',
+            title: cell.c || el.textContent || '',
+            pinyin: cell.p || '',
+            gloss: cell.g || ''
+          };
+        }
+        updateInfo(payload);
+        showBubble(el, payload);
+      }
+      data.lines.forEach(line => {
+        const lineEl = document.createElement('div');
+        lineEl.className = 'line';
+        Array.from(line.text || '').forEach((ch, idx) => {
+          const span = document.createElement('span');
+          span.className = 'char';
+          span.textContent = ch;
+          span.dataset.line = line.index;
+          span.dataset.index = idx;
+          if(/[，。！？、；：、“”‘’（）《》〈〉【】『』]/.test(ch)){
+            span.classList.add('punct');
+            span.style.pointerEvents = 'none';
+          }else{
+            span.addEventListener('click', handleCharClick);
+          }
+          lineEl.appendChild(span);
+        });
+        panel.appendChild(lineEl);
+      });
+      document.addEventListener('click', ev => {
+        if(ev.target.closest('.char')) return;
+        if(ev.target.closest('.bubble')) return;
+        clearActive();
+        updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+        hideBubble();
+      });
+      document.addEventListener('keydown', ev => {
+        if(ev.key === 'Escape'){
+          clearActive();
+          updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+          hideBubble();
+        }
+      });
+    })();
+  </script>
 </body>
 </html>`;
     }
@@ -407,30 +601,24 @@
         card.dataset.file = entry.file;
         container.appendChild(card);
       }
-      const previewLines = entry.translation.sections.slice(0, 3).map(sec => {
-        const parts = [];
-        if(sec.original){
-          parts.push(`<p>${escapeHtml('原文：' + sec.original)}</p>`);
-        }
-        if(sec.translation){
-          parts.push(`<p>${escapeHtml('译文：' + sec.translation)}</p>`);
-        }
-        return `<div class="line-pair">${parts.join('') || '<p class="status">暂无内容</p>'}</div>`;
+      const previewLines = entry.translation.lines.slice(0, 2).map(line => {
+        const glossPreview = line.chars.filter(cell => cell.g).slice(0, 6).map(cell => `${cell.c}（${cell.g}）`).join('、');
+        return `<div class="line-pair"><p>${escapeHtml(line.text)}</p><p>${escapeHtml(glossPreview || '暂无释义')}</p></div>`;
       }).join('');
       card.innerHTML = `
         <header>
           <h3>${escapeHtml(entry.title)}</h3>
           <div class="btn-row" style="gap:8px">
             <span class="chip">${escapeHtml(entry.file.replace(/\.txt$/i, '.html'))}</span>
-            <span class="status">已合成译文页面，可下载</span>
+            <span class="status">已生成逐字注释页面，可下载</span>
           </div>
         </header>
         <div class="downloads">
-          <a href="${entry.url}" download="${escapeHtml(entry.downloadName)}">下载译文 HTML</a>
+          <a href="${entry.url}" download="${escapeHtml(entry.downloadName)}">下载注释 HTML</a>
           <button data-action="preview">复制完整 HTML</button>
         </div>
         <details>
-          <summary>译文预览（前三段）</summary>
+          <summary>注释预览（前两行）</summary>
           ${previewLines || '<p class="status">暂无预览</p>'}
         </details>
       `;
@@ -466,7 +654,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>聊斋译文导航</title>
+  <title>聊斋逐字注释导航</title>
   <style>
     body{margin:0;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:#0b111a;color:#e8efff;padding:28px;line-height:1.8}
     h1{margin-top:0;font-size:28px}
@@ -477,8 +665,8 @@
   </style>
 </head>
 <body>
-  <h1>聊斋译文导航</h1>
-  <p>本导航列出本次生成的所有 DeepSeek 译文页面，下载后放在同一目录即可直接打开。</p>
+  <h1>聊斋逐字注释导航</h1>
+  <p>本导航列出本次生成的所有 DeepSeek 逐字注释页面，下载后放在同一目录即可直接打开。</p>
   <ul>
 ${linksHtml}
   </ul>
@@ -505,7 +693,7 @@ ${linksHtml}
           return;
         }
         const cfg = getApiConfig();
-        $('#globalStatus').textContent = '正在生成译文，请稍候…';
+        $('#globalStatus').textContent = '正在生成逐字注释，请稍候…';
         $('#generateSelected').disabled = true;
         for(const index of selected){
           const meta = state.manifest[index];
@@ -520,7 +708,7 @@ ${linksHtml}
             const text = await res.text();
             const parsed = parseContent(text);
             if(parsed.originalLines.length === 0){
-              throw new Error('未找到可翻译的原文段落');
+              throw new Error('未找到可注释的原文段落');
             }
             if(statusEl){
               statusEl.textContent = '调用 DeepSeek 中…';
