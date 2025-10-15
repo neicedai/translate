@@ -340,14 +340,18 @@ function buildPageHtml(meta, content, translation){
     .char:hover{background:rgba(77,163,255,.12)}
     .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
     .char.punct{opacity:.55;cursor:default;pointer-events:none}
-    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:center}
-    .info-value{min-height:20px}
+    .info-grid{display:grid;grid-template-columns:94px 1fr;gap:10px;font-size:14px;align-items:flex-start}
+    .info-value{min-height:20px;display:block;white-space:pre-wrap;word-break:break-word;line-height:1.65}
     .info-value em{color:var(--sub)}
+    .info-panel{display:flex;flex-direction:column;gap:18px}
+    .info-section{display:flex;flex-direction:column;gap:8px}
+    .info-section h3{margin:0;font-size:16px;color:var(--accent);font-weight:600}
+    .info-empty{font-size:13px;color:var(--sub);font-style:italic}
     .bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 14px 32px rgba(0,0,0,.45);z-index:9999;pointer-events:none}
     .bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
-    .bubble .b-title{font-size:18px;font-weight:700}
+    .bubble .b-char{font-size:18px;font-weight:700}
     .bubble .b-pinyin{font-size:14px;color:var(--yellow)}
-    .bubble .b-gloss{font-size:13px;color:var(--text)}
+    .bubble .b-gloss{font-size:13px;color:var(--text);line-height:1.6}
     .bubble .b-empty{color:var(--sub);font-style:italic}
     .section{margin-top:24px}
     .section h2{margin-top:0;font-size:22px;color:var(--accent)}
@@ -366,13 +370,26 @@ function buildPageHtml(meta, content, translation){
       <h2>逐字·词组释义</h2>
       <div class="text-panel" id="textPanel" aria-live="polite">${textPanelHtml}</div>
     </section>
-    <aside class="panel">
-      <h2>当前释义</h2>
-      <div class="info-grid">
-        <span>类型</span><span class="info-value" id="infoScope"><em>点击左侧文字开始</em></span>
-        <span>内容</span><span class="info-value" id="infoTarget">—</span>
-        <span>拼音</span><span class="info-value" id="infoPinyin">—</span>
-        <span>释义</span><span class="info-value" id="infoGloss">—</span>
+    <aside class="panel info-panel">
+      <h2>释义详情</h2>
+      <div class="info-section">
+        <h3>词组释义</h3>
+        <div class="info-grid" id="phraseInfo" hidden>
+          <span>范围</span><span class="info-value" id="phraseRange">—</span>
+          <span>词组</span><span class="info-value" id="phraseText">—</span>
+          <span>拼音</span><span class="info-value" id="phrasePinyin">—</span>
+          <span>释义</span><span class="info-value" id="phraseGloss">—</span>
+        </div>
+        <p class="info-empty" id="phraseEmpty">未命中词组时，将仅显示单字释义。</p>
+      </div>
+      <div class="info-section">
+        <h3>单字释义</h3>
+        <div class="info-grid">
+          <span>位置</span><span class="info-value" id="charPos"><em>点击左侧文字开始</em></span>
+          <span>原字</span><span class="info-value" id="charText">—</span>
+          <span>拼音</span><span class="info-value" id="charPinyin">—</span>
+          <span>释义</span><span class="info-value" id="charGloss">—</span>
+        </div>
       </div>
     </aside>
   </main>
@@ -395,24 +412,40 @@ function buildPageHtml(meta, content, translation){
     (function(){
       const data = window.PAGE_DATA || { lines: [] };
       const panel = document.getElementById('textPanel');
-      const infoScope = document.getElementById('infoScope');
-      const infoTarget = document.getElementById('infoTarget');
-      const infoPinyin = document.getElementById('infoPinyin');
-      const infoGloss = document.getElementById('infoGloss');
+      const charPos = document.getElementById('charPos');
+      const charText = document.getElementById('charText');
+      const charPinyin = document.getElementById('charPinyin');
+      const charGloss = document.getElementById('charGloss');
+      const phraseInfo = document.getElementById('phraseInfo');
+      const phraseRange = document.getElementById('phraseRange');
+      const phraseText = document.getElementById('phraseText');
+      const phrasePinyin = document.getElementById('phrasePinyin');
+      const phraseGloss = document.getElementById('phraseGloss');
+      const phraseEmpty = document.getElementById('phraseEmpty');
       const bubble = document.getElementById('bubble');
       const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
+      let currentSelection = null;
       function escapeHtml(str){
-        return str.replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
+        return String(str ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
       }
       function clearActive(){
         if(!panel) return;
         panel.querySelectorAll('.char.active').forEach(el => el.classList.remove('active'));
       }
-      function updateInfo(payload){
-        infoScope.textContent = payload.scope || '—';
-        infoTarget.textContent = payload.title || '—';
-        infoPinyin.textContent = payload.pinyin || '—';
-        infoGloss.textContent = payload.gloss || '—';
+      function resetInfo(){
+        clearActive();
+        currentSelection = null;
+        if(charPos) charPos.innerHTML = '<em>点击左侧文字开始</em>';
+        if(charText) charText.textContent = '—';
+        if(charPinyin) charPinyin.textContent = '—';
+        if(charGloss) charGloss.textContent = '—';
+        if(phraseInfo) phraseInfo.setAttribute('hidden', '');
+        if(phraseRange) phraseRange.textContent = '—';
+        if(phraseText) phraseText.textContent = '—';
+        if(phrasePinyin) phrasePinyin.textContent = '—';
+        if(phraseGloss) phraseGloss.textContent = '—';
+        if(phraseEmpty) phraseEmpty.removeAttribute('hidden');
+        hideBubble();
       }
       function getLine(lineIndex){
         return data.lines[lineIndex] || { text: '', chars: [], phrases: [] };
@@ -425,19 +458,62 @@ function buildPageHtml(meta, content, translation){
         const line = getLine(lineIndex);
         return Array.from(line.text || '').slice(start, end + 1).join('');
       }
-      function showBubble(el, payload){
+      function highlightRange(lineIndex, start, end){
+        if(!panel) return;
+        const lineEl = panel.querySelector('.line[data-line="' + lineIndex + '"]');
+        if(!lineEl) return;
+        for(let i = start; i <= end; i++){
+          const span = lineEl.querySelector('.char[data-index="' + i + '"]');
+          if(span) span.classList.add('active');
+        }
+      }
+      function updateCharInfo(lineIndex, charIndex, payload){
+        if(!charPos || !charText || !charPinyin || !charGloss) return;
+        charPos.textContent = '第' + (lineIndex + 1) + '行·第' + (charIndex + 1) + '字';
+        charText.textContent = payload.text || '—';
+        charPinyin.textContent = payload.pinyin || '—';
+        charGloss.textContent = payload.gloss || '—';
+      }
+
+      function updatePhraseInfo(lineIndex, phrase, charPayload){
+        if(!phraseInfo || !phraseRange || !phraseText || !phrasePinyin || !phraseGloss || !phraseEmpty) return;
+        if(phrase){
+          phraseInfo.removeAttribute('hidden');
+          phraseEmpty.setAttribute('hidden', '');
+          phraseRange.textContent = '第' + (lineIndex + 1) + '行·' + (phrase.s + 1) + '-' + (phrase.e + 1) + '字';
+          phraseText.textContent = phrase.text || '—';
+          phrasePinyin.textContent = phrase.pinyin || charPayload.pinyin || '—';
+          phraseGloss.textContent = phrase.gloss || charPayload.gloss || '—';
+        }else{
+          phraseInfo.setAttribute('hidden', '');
+          phraseEmpty.removeAttribute('hidden');
+          phraseRange.textContent = '—';
+          phraseText.textContent = '—';
+          phrasePinyin.textContent = '—';
+          phraseGloss.textContent = '—';
+        }
+      }
+
+      function showBubble(el, charPayload, phrasePayload){
         if(!bubble || !el) return;
-        bubble.innerHTML = '<div class="b-hd"><span class="b-title">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + (payload.gloss ? escapeHtml(payload.gloss) : '<span class="b-empty">暂无释义</span>') + '</div>';
+        const title = phrasePayload?.text || charPayload.text || '—';
+        const pinyin = phrasePayload?.pinyin || charPayload.pinyin || '—';
+        const gloss = phrasePayload?.gloss || charPayload.gloss || '';
+        const glossHtml = gloss ? escapeHtml(gloss).replace(/\n/g, '<br />') : '<span class="b-empty">暂无释义</span>';
+        bubble.innerHTML = '<div class="b-hd"><span class="b-char">' + escapeHtml(title) + '</span><span class="b-pinyin">' + escapeHtml(pinyin) + '</span></div><div class="b-gloss">' + glossHtml + '</div>';
         bubble.style.display = 'block';
-        const rect = el.getBoundingClientRect();
-        let left = rect.left + window.scrollX;
-        const top = rect.bottom + window.scrollY + 10;
-        const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 16;
-        if(left > maxLeft) left = maxLeft;
-        if(left < window.scrollX + 16) left = window.scrollX + 16;
-        bubble.style.left = left + 'px';
-        bubble.style.top = top + 'px';
-        bubble.setAttribute('aria-hidden', 'false');
+        requestAnimationFrame(() => {
+          const rect = el.getBoundingClientRect();
+          const pad = 10;
+          let left = rect.left + window.scrollX;
+          const top = rect.bottom + window.scrollY + pad;
+          const maxLeft = window.scrollX + window.innerWidth - bubble.offsetWidth - 16;
+          if(left > maxLeft) left = maxLeft;
+          if(left < window.scrollX + 16) left = window.scrollX + 16;
+          bubble.style.left = left + 'px';
+          bubble.style.top = top + 'px';
+          bubble.setAttribute('aria-hidden', 'false');
+        });
       }
       function hideBubble(){
         if(!bubble) return;
@@ -452,25 +528,27 @@ function buildPageHtml(meta, content, translation){
         const cell = (line.chars || [])[charIndex] || { c: el.textContent || '' };
         const phrase = getPhrase(lineIndex, charIndex);
         clearActive();
-        el.classList.add('active');
-        let payload;
+        currentSelection = { lineIndex, charIndex };
+        const charPayload = {
+          text: cell.c || el.textContent || '',
+          pinyin: cell.p || '',
+          gloss: cell.g || ''
+        };
+        let phrasePayload = null;
         if(phrase){
-          payload = {
-            scope: '词组',
-            title: getPhraseText(lineIndex, phrase.s, phrase.e),
-            pinyin: phrase.p || cell.p || '',
-            gloss: phrase.g || cell.g || ''
+          highlightRange(lineIndex, phrase.s, phrase.e);
+          phrasePayload = {
+            text: getPhraseText(lineIndex, phrase.s, phrase.e),
+            pinyin: phrase.p || '',
+            gloss: phrase.g || ''
           };
         }else{
-          payload = {
-            scope: '单字',
-            title: cell.c || el.textContent || '',
-            pinyin: cell.p || '',
-            gloss: cell.g || ''
-          };
+          el.classList.add('active');
         }
-        updateInfo(payload);
-        showBubble(el, payload);
+        updateCharInfo(lineIndex, charIndex, charPayload);
+        const phraseView = (phrase && phrasePayload) ? { ...phrase, text: phrasePayload.text, pinyin: phrasePayload.pinyin, gloss: phrasePayload.gloss } : null;
+        updatePhraseInfo(lineIndex, phraseView, charPayload);
+        showBubble(el, charPayload, phrasePayload);
       }
       function enhancePanel(){
         if(!panel) return;
@@ -505,17 +583,18 @@ function buildPageHtml(meta, content, translation){
       document.addEventListener('click', ev => {
         if(ev.target.closest('.char')) return;
         if(ev.target.closest('.bubble')) return;
-        clearActive();
-        updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
-        hideBubble();
+        resetInfo();
       });
       document.addEventListener('keydown', ev => {
         if(ev.key === 'Escape'){
-          clearActive();
-          updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
-          hideBubble();
+          resetInfo();
         }
       });
+      document.addEventListener('scroll', () => {
+        hideBubble();
+      }, true);
+
+      resetInfo();
     })();
   </script>
 </body>
