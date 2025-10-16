@@ -588,7 +588,22 @@
       const bubble = document.getElementById('bubble');
       const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return String(str ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
+        return String(str ?? '').replace(/[&<>"']/g, ch => {
+          switch(ch){
+            case '&':
+              return '&amp;';
+            case '<':
+              return '&lt;';
+            case '>':
+              return '&gt;';
+            case '"':
+              return '&quot;';
+            case '\'':
+              return '&#39;';
+            default:
+              return ch;
+          }
+        });
       }
       function clearActive(){
         if(!panel) return;
