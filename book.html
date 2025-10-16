@@ -354,14 +354,78 @@
         const chars = charArr.map(ch => ({ c: ch, p: '', g: '' }));
         const phrases = [];
         const payloadLine = lineMap.get(index);
+        let indexShift = 0;
+        let shiftResolved = false;
+        const usedIndices = new Set();
+        function findCharIndex(entryChar, preferredIndex=null, trackUsage=true){
+          if(!entryChar) return -1;
+          const candidates = [];
+          charArr.forEach((ch, arrIdx) => {
+            if(ch !== entryChar) return;
+            if(trackUsage && usedIndices.has(arrIdx)) return;
+            candidates.push(arrIdx);
+          });
+          if(!candidates.length && trackUsage){
+            return findCharIndex(entryChar, preferredIndex, false);
+          }
+          if(!candidates.length) return -1;
+          if(typeof preferredIndex === 'number' && Number.isFinite(preferredIndex)){
+            let best = candidates[0];
+            let bestDelta = Math.abs(preferredIndex - best);
+            for(let i = 1; i < candidates.length; i++){
+              const idxCandidate = candidates[i];
+              const delta = Math.abs(preferredIndex - idxCandidate);
+              if(delta < bestDelta){
+                best = idxCandidate;
+                bestDelta = delta;
+              }
+            }
+            return best;
+          }
+          return candidates[0];
+        }
+        if(payloadLine && Array.isArray(payloadLine.chars)){
+          for(const entry of payloadLine.chars){
+            if(!entry) continue;
+            const rawIndex = pickInteger(entry, ['i', 'index', 'idx', 'position']);
+            const entryChar = pickString(entry, ['ch', 'char', 'character', 'c', 'text', 'value']);
+            if(rawIndex === null || !entryChar) continue;
+            const actualIndex = findCharIndex(entryChar, rawIndex, false);
+            if(actualIndex === -1) continue;
+            indexShift = rawIndex - actualIndex;
+            shiftResolved = true;
+            break;
+          }
+        }
+        function normaliseIndex(rawIndex, entryChar, opts={}){
+          if(rawIndex === null) return null;
+          let candidate = rawIndex - (shiftResolved ? indexShift : 0);
+          if(candidate < 0 || candidate >= chars.length){
+            if(entryChar){
+              const fallback = findCharIndex(entryChar, candidate, opts.trackUsage !== false);
+              if(fallback === -1) return null;
+              candidate = fallback;
+            }else if(shiftResolved && candidate === chars.length && chars.length){
+              candidate = chars.length - 1;
+            }else{
+              return null;
+            }
+          }
+          if(entryChar && charArr[candidate] !== entryChar){
+            const fallback = findCharIndex(entryChar, candidate, opts.trackUsage !== false);
+            if(fallback === -1) return null;
+            candidate = fallback;
+          }
+          return candidate;
+        }
         if(payloadLine){
           if(Array.isArray(payloadLine.chars)){
             payloadLine.chars.forEach(entry => {
               if(!entry) return;
-              const i = pickInteger(entry, ['i', 'index', 'idx', 'position']);
-              if(i === null || i < 0 || i >= chars.length) return;
+              const rawIndex = pickInteger(entry, ['i', 'index', 'idx', 'position']);
               const entryChar = pickString(entry, ['ch', 'char', 'character', 'c', 'text', 'value']);
-              if(entryChar && entryChar !== charArr[i]) return;
+              const i = normaliseIndex(rawIndex, entryChar);
+              if(i === null || i < 0 || i >= chars.length) return;
               const pVal = pickString(entry, ['p', 'pinyin', 'py']);
               if(pVal){
                 chars[i].p = pVal;
@@ -370,13 +434,14 @@
               if(gVal){
                 chars[i].g = gVal;
               }
+              usedIndices.add(i);
             });
           }
           if(Array.isArray(payloadLine.phrases)){
             payloadLine.phrases.forEach(ph => {
               if(!ph) return;
-              let s = pickInteger(ph, ['s', 'start', 'from', 'begin', 'beginIndex']);
-              let e = pickInteger(ph, ['e', 'end', 'to', 'finish', 'stop', 'endIndex']);
+              let s = normaliseIndex(pickInteger(ph, ['s', 'start', 'from', 'begin', 'beginIndex']), null, { trackUsage: false });
+              let e = normaliseIndex(pickInteger(ph, ['e', 'end', 'to', 'finish', 'stop', 'endIndex']), null, { trackUsage: false });
               if(s === null || e === null) return;
               if(s > e) [s, e] = [e, s];
               if(s < 0 || e >= chars.length) return;
