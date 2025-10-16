@@ -254,7 +254,8 @@
     }
 
     function getStatusEl(index){
-      return $$('#fileList .file-item')[index]?.querySelector('[data-role="status"]') || null;
+      const items = $$('#fileList .file-item');
+      return items[index]?.querySelector('[data-role="status"]') || null;
     }
 
     async function translateWithDeepseek(cfg, meta, content){
