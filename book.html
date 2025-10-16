@@ -314,12 +314,37 @@
       return payload;
     }
 
+    function pickString(source, keys){
+      if(!source) return '';
+      for(const key of keys){
+        if(!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const value = source[key];
+        if(typeof value === 'string'){
+          const trimmed = value.trim();
+          if(trimmed) return trimmed;
+        }
+      }
+      return '';
+    }
+
+    function pickInteger(source, keys){
+      if(!source) return null;
+      for(const key of keys){
+        if(!Object.prototype.hasOwnProperty.call(source, key)) continue;
+        const value = Number(source[key]);
+        if(Number.isInteger(value)){
+          return value;
+        }
+      }
+      return null;
+    }
+
     function normaliseTranslation(content, payload){
       const lineMap = new Map();
       if(Array.isArray(payload?.lines)){
         payload.lines.forEach(item => {
           if(!item) return;
-          const idx = Number.isInteger(item.index) ? item.index : Number.isInteger(item.lineIndex) ? item.lineIndex : Number.isInteger(item.line) ? item.line : null;
+          const idx = pickInteger(item, ['index', 'lineIndex', 'line']);
           if(idx === null) return;
           lineMap.set(idx, item);
         });
@@ -333,49 +358,61 @@
           if(Array.isArray(payloadLine.chars)){
             payloadLine.chars.forEach(entry => {
               if(!entry) return;
-              const i = Number(entry.i);
-              if(!Number.isInteger(i) || i < 0 || i >= chars.length) return;
-              if(entry.ch && entry.ch !== charArr[i]) return;
-              if(typeof entry.p === 'string' && entry.p.trim()){
-                chars[i].p = entry.p.trim();
+              const i = pickInteger(entry, ['i', 'index', 'idx', 'position']);
+              if(i === null || i < 0 || i >= chars.length) return;
+              const entryChar = pickString(entry, ['ch', 'char', 'character', 'c', 'text', 'value']);
+              if(entryChar && entryChar !== charArr[i]) return;
+              const pVal = pickString(entry, ['p', 'pinyin', 'py']);
+              if(pVal){
+                chars[i].p = pVal;
               }
-              if(typeof entry.g === 'string' && entry.g.trim()){
-                chars[i].g = entry.g.trim();
+              const gVal = pickString(entry, ['g', 'gloss', 'meaning', 'translation', 'explanation', 'note', 'interpretation', 'definition', 'def']);
+              if(gVal){
+                chars[i].g = gVal;
               }
             });
           }
           if(Array.isArray(payloadLine.phrases)){
             payloadLine.phrases.forEach(ph => {
               if(!ph) return;
-              let s = Number(ph.s);
-              let e = Number(ph.e);
-              if(!Number.isInteger(s) || !Number.isInteger(e)) return;
+              let s = pickInteger(ph, ['s', 'start', 'from', 'begin', 'beginIndex']);
+              let e = pickInteger(ph, ['e', 'end', 'to', 'finish', 'stop', 'endIndex']);
+              if(s === null || e === null) return;
               if(s > e) [s, e] = [e, s];
               if(s < 0 || e >= chars.length) return;
               phrases.push({
                 s,
                 e,
-                p: typeof ph.p === 'string' ? ph.p.trim() : '',
-                g: typeof ph.g === 'string' ? ph.g.trim() : ''
+                p: pickString(ph, ['p', 'pinyin', 'py']),
+                g: pickString(ph, ['g', 'gloss', 'meaning', 'translation', 'explanation', 'note', 'interpretation', 'definition', 'def'])
               });
             });
           }
         }
         return { text, chars, phrases };
       });
-      const summary = typeof payload?.summary === 'string' ? payload.summary.trim() : '';
-      const title = typeof payload?.title === 'string' && payload.title.trim() ? payload.title.trim() : '';
+      const summary = pickString(payload, ['summary', 'desc', 'description']);
+      const title = pickString(payload, ['title', 'name', 'heading']);
       return { title, lines, summary };
     }
 
     function buildPageHtml(meta, content, translation){
       const docTitle = translation.title || (meta.title || meta.file.replace(/\.txt$/i, ''));
+      const safeDocTitle = escapeHtml(docTitle);
       const now = new Date();
       const stamp = now.toLocaleString();
       const vernacularHtml = content.vernacular ? escapeHtml(content.vernacular).replace(/\n/g, '<br />') : '<em>原文件未提供白话文内容。</em>';
       const commentHtml = content.comment ? escapeHtml(content.comment).replace(/\n/g, '<br />') : '<em>原文件未提供点评。</em>';
       const originalHtml = content.originalText ? escapeHtml(content.originalText).replace(/\n/g, '<br />') : '';
-      const summaryHtml = translation.summary ? `<p class="meta">${escapeHtml(translation.summary)}</p>` : '';
+      const summaryHtml = translation.summary ? `<p class="hero-summary">${escapeHtml(translation.summary)}</p>` : '';
+      const totalChars = translation.lines.reduce((sum, line) => sum + line.chars.length, 0);
+      const annotatedChars = translation.lines.reduce((sum, line) => sum + line.chars.filter(cell => cell.g || cell.p).length, 0);
+      const phraseCount = translation.lines.reduce((sum, line) => sum + line.phrases.length, 0);
+      const lineCount = translation.lines.length;
+      const coveragePercent = totalChars ? Math.round((annotatedChars / totalChars) * 100) : 0;
+      const annotatedChip = totalChars
+        ? `释义覆盖：${annotatedChars}/${totalChars} 字（约 ${coveragePercent}%）`
+        : '暂无释义覆盖统计';
       const textPanelHtml = translation.lines.map((line, lineIndex) => {
         const charsHtml = Array.from(line.text || '').map((ch, charIndex) => {
           const classes = ['char'];
@@ -414,73 +451,130 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${docTitle} · 逐字注释</title>
+  <title>${safeDocTitle} · 逐字注释</title>
   <style>
-    :root{--bg:#0b0f14;--card:#121821;--border:#1c2431;--text:#e7eef7;--sub:#9db2cf;--accent:#4da3ff;--hl:#1d2a3c;--chip:#22334b;--yellow:#ffd166;}
+    :root{
+      --bg:#05080f;
+      --card:#101722;
+      --surface:#0b111b;
+      --border:#1a2433;
+      --text:#e8eef9;
+      --muted:#91a3c3;
+      --accent:#4da3ff;
+      --chip:#1a2536;
+      --highlight:#1f2a3c;
+      --yellow:#ffd166;
+    }
     *{box-sizing:border-box}
-    body{margin:0;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",sans-serif;background:linear-gradient(180deg,#0b0f14,#0f1621);color:var(--text);line-height:1.8;padding:26px}
-    header{margin-bottom:24px}
-    h1{margin:0;font-size:28px}
-    .meta{color:var(--sub);font-size:13px;margin-top:6px}
-    .layout{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,0.8fr);gap:20px;align-items:start}
-    .panel{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:18px}
-    .panel h2{margin-top:0;font-size:20px;color:var(--accent)}
-    .text-panel{background:#0b111a;border:1px solid var(--border);border-radius:16px;padding:16px;height:70vh;overflow:auto}
-    .line{margin-bottom:14px;font-size:20px;line-height:1.9}
+    body{margin:0;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,-apple-system,Segoe UI,sans-serif;background:linear-gradient(180deg,#05080f,#0d1420);color:var(--text)}
+    .container{max-width:1120px;margin:0 auto;padding:32px 22px 40px;display:flex;flex-direction:column;gap:22px}
+    .hero{display:flex;flex-direction:column;gap:16px;background:var(--card);border:1px solid var(--border);border-radius:22px;padding:24px 26px;box-shadow:0 24px 60px rgba(5,12,24,.35)}
+    .hero h1{margin:6px 0 0;font-size:28px;letter-spacing:.01em}
+    .hero .breadcrumb{margin:0;color:var(--muted);font-size:13px;letter-spacing:.08em;text-transform:uppercase}
+    .hero-summary{margin:6px 0 0;color:var(--muted);font-size:14px;line-height:1.7}
+    .chip-row{display:flex;flex-wrap:wrap;gap:10px}
+    .chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--chip);color:var(--muted);border:1px solid var(--border);font-size:12px}
+    kbd{display:inline-block;padding:2px 6px;border-radius:6px;background:var(--surface);border:1px solid var(--border);font-size:12px;color:var(--muted)}
+    .layout{display:grid;grid-template-columns:minmax(0,1.28fr) minmax(0,0.72fr);gap:22px;align-items:start}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:20px 22px;display:flex;flex-direction:column;gap:14px}
+    .card-head{display:flex;flex-direction:column;gap:4px}
+    .card-head h2{margin:0;font-size:20px;font-weight:600;color:var(--accent)}
+    .card-head .muted{color:var(--muted);font-size:13px;margin:0}
+    .text-panel{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;height:70vh;overflow:auto;box-shadow:inset 0 0 0 1px rgba(77,163,255,.05)}
+    .line{margin-bottom:16px;font-size:20px;line-height:1.95}
     .line:last-child{margin-bottom:0}
-    .char{display:inline-block;padding:4px 7px;margin:0 2px;border-radius:10px;cursor:pointer;transition:background .15s}
+    .char{display:inline-block;padding:4px 8px;margin:0 2px;border-radius:10px;cursor:pointer;transition:background .15s ease,color .15s ease}
     .char:hover{background:rgba(77,163,255,.12)}
-    .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.3)}
+    .char.active{background:rgba(77,163,255,.22);outline:1px dashed rgba(77,163,255,.32)}
     .char.punct{opacity:.55;cursor:default;pointer-events:none}
-    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:10px;font-size:14px;align-items:flex-start}
-    .info-value{min-height:20px;display:block;white-space:pre-wrap;word-break:break-word;line-height:1.65}
-    .info-value em{color:var(--sub)}
-    .bubble{position:fixed;display:none;max-width:320px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;box-shadow:0 14px 32px rgba(0,0,0,.45);z-index:9999;pointer-events:none}
-    .bubble .b-hd{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
-    .bubble .b-char{font-size:18px;font-weight:700}
+    .info-grid{display:grid;grid-template-columns:90px 1fr;gap:12px;font-size:14px;align-items:flex-start}
+    .info-grid dt{color:var(--muted);margin:0}
+    .info-grid dd{margin:0;min-height:24px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+    .info-grid .placeholder{color:var(--muted);font-style:italic}
+    .prose{font-size:15px;line-height:1.9;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;white-space:pre-wrap;word-break:break-word}
+    footer{text-align:center;color:var(--muted);font-size:12px;padding-top:10px}
+    .bubble{position:fixed;display:none;max-width:320px;background:rgba(11,17,27,.98);border:1px solid rgba(77,163,255,.25);border-radius:14px;padding:14px 16px;box-shadow:0 18px 42px rgba(3,8,16,.55);z-index:9999;pointer-events:none;backdrop-filter:blur(4px)}
+    .bubble .b-hd{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+    .bubble .b-char{font-size:20px;font-weight:700}
     .bubble .b-pinyin{font-size:14px;color:var(--yellow)}
-    .bubble .b-gloss{font-size:13px;color:var(--text);line-height:1.6}
-    .bubble .b-empty{color:var(--sub);font-style:italic}
-    .section{margin-top:24px}
-    .section h2{margin-top:0;font-size:22px;color:var(--accent)}
-    .section p{margin:0;font-size:15px;white-space:pre-wrap}
-    footer{margin-top:36px;font-size:12px;color:var(--sub)}
+    .bubble .b-scope{margin-left:auto;padding:2px 8px;border-radius:999px;background:rgba(77,163,255,.15);border:1px solid rgba(77,163,255,.3);color:var(--accent);font-size:12px;letter-spacing:.04em}
+    .bubble .b-gloss{font-size:13px;color:var(--text);line-height:1.65}
+    .bubble .b-empty{color:var(--muted);font-style:italic}
+    .section-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+    @media (max-width:960px){
+      .layout{grid-template-columns:1fr}
+      .text-panel{height:auto;max-height:70vh}
+    }
+    @media (max-width:640px){
+      .container{padding:24px 16px 34px}
+      .hero{padding:20px}
+      .text-panel{font-size:18px}
+      .info-grid{grid-template-columns:80px 1fr}
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>${docTitle}</h1>
-    ${summaryHtml}
-    <p class="meta">生成时间：${escapeHtml(stamp)} · 来源文件：${escapeHtml(meta.file)}</p>
-  </header>
-  <main class="layout">
-    <section class="panel">
-      <h2>逐字·词组释义</h2>
-      <div class="text-panel" id="textPanel" aria-live="polite">${textPanelHtml}</div>
-    </section>
-    <aside class="panel">
-      <h2>当前释义</h2>
-      <div class="info-grid">
-        <span>类型</span><span class="info-value" id="infoScope"><em>点击左侧文字开始</em></span>
-        <span>内容</span><span class="info-value" id="infoTarget">—</span>
-        <span>拼音</span><span class="info-value" id="infoPinyin">—</span>
-        <span>释义</span><span class="info-value" id="infoGloss">—</span>
+  <div class="container">
+    <header class="hero">
+      <div>
+        <p class="breadcrumb">聊斋志异 · 自动注释</p>
+        <h1>${safeDocTitle}</h1>
+        ${summaryHtml}
       </div>
-    </aside>
-  </main>
-  <section class="panel section">
-    <h2>原文</h2>
-    <p>${originalHtml}</p>
-  </section>
-  <section class="panel section">
-    <h2>原书白话文</h2>
-    <p>${vernacularHtml}</p>
-  </section>
-  <section class="panel section">
-    <h2>原书点评</h2>
-    <p>${commentHtml}</p>
-  </section>
-  <footer>本页面由《聊斋志异》逐字注释生成器自动生成。</footer>
+      <div class="chip-row">
+        <span class="chip">生成时间：${escapeHtml(stamp)}</span>
+        <span class="chip">来源文件：${escapeHtml(meta.file)}</span>
+        <span class="chip">共 ${lineCount} 行</span>
+        <span class="chip">词组注释：${phraseCount} 处</span>
+        <span class="chip">${escapeHtml(annotatedChip)}</span>
+      </div>
+    </header>
+    <main class="layout">
+      <section class="card">
+        <div class="card-head">
+          <h2>逐字点读区</h2>
+          <p class="muted">点击下方文字查看对应的单字或词组释义，若命中词组会自动高亮整段。</p>
+        </div>
+        <div class="text-panel" id="textPanel" aria-live="polite">${textPanelHtml}</div>
+      </section>
+      <aside class="card">
+        <div class="card-head">
+          <h2>释义详情</h2>
+          <p class="muted">可按 <kbd>Esc</kbd> 清除选中。</p>
+        </div>
+        <dl class="info-grid">
+          <dt>类型</dt><dd id="infoScope" class="placeholder">点击左侧文字开始</dd>
+          <dt>内容</dt><dd id="infoTarget">—</dd>
+          <dt>拼音</dt><dd id="infoPinyin">—</dd>
+          <dt>释义</dt><dd id="infoGloss">—</dd>
+        </dl>
+      </aside>
+    </main>
+    <section class="section-grid">
+      <article class="card">
+        <div class="card-head">
+          <h2>原文</h2>
+          <p class="muted">保留原书分行便于对照。</p>
+        </div>
+        <div class="prose">${originalHtml}</div>
+      </article>
+      <article class="card">
+        <div class="card-head">
+          <h2>原书白话</h2>
+          <p class="muted">生成内容与原文同步，若原文无白话会提示。</p>
+        </div>
+        <div class="prose">${vernacularHtml}</div>
+      </article>
+      <article class="card">
+        <div class="card-head">
+          <h2>原书点评</h2>
+          <p class="muted">若原文件缺少点评将显示提示。</p>
+        </div>
+        <div class="prose">${commentHtml}</div>
+      </article>
+    </section>
+    <footer>本页面由《聊斋志异》逐字注释生成器自动生成，可离线保存长期查看。</footer>
+  </div>
   <div id="bubble" class="bubble" role="status" aria-hidden="true"></div>
   <script>window.PAGE_DATA=${dataScript};${SCRIPT_PLACEHOLDER}
   <script>
@@ -494,17 +588,55 @@
       const bubble = document.getElementById('bubble');
       const punctuationRe = /[，。！？、；：、“”‘’（）《》〈〉【】『』]/;
       function escapeHtml(str){
-        return String(str ?? '').replace(/[&<>\"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\\'':'&#39;'}[c]));
+        return String(str ?? '').replace(/[&<>"']/g, ch => {
+          switch(ch){
+            case '&':
+              return '&amp;';
+            case '<':
+              return '&lt;';
+            case '>':
+              return '&gt;';
+            case '"':
+              return '&quot;';
+            case '\'':
+              return '&#39;';
+            default:
+              return ch;
+          }
+        });
       }
       function clearActive(){
         if(!panel) return;
         panel.querySelectorAll('.char.active').forEach(el => el.classList.remove('active'));
       }
+      function setInfoField(el, value, fallback='—'){
+        if(!el) return;
+        const raw = typeof value === 'string' ? value.trim() : '';
+        const text = raw && raw !== '—' ? raw : '';
+        if(text){
+          el.textContent = text;
+          el.classList.remove('placeholder');
+        }else{
+          el.textContent = fallback;
+          el.classList.add('placeholder');
+        }
+      }
       function updateInfo(payload){
-        infoScope.textContent = payload.scope || '—';
-        infoTarget.textContent = payload.title || '—';
-        infoPinyin.textContent = payload.pinyin || '—';
-        infoGloss.textContent = payload.gloss || '—';
+        const scopeText = payload?.scope && payload.scope !== '—' ? payload.scope : '';
+        const titleText = payload?.title && payload.title !== '—' ? payload.title : '';
+        setInfoField(infoScope, scopeText);
+        setInfoField(infoTarget, titleText);
+        setInfoField(infoPinyin, payload?.pinyin || '');
+        setInfoField(infoGloss, payload?.gloss || '');
+      }
+      function resetInfo(){
+        if(infoScope){
+          infoScope.textContent = '点击左侧文字开始';
+          infoScope.classList.add('placeholder');
+        }
+        setInfoField(infoTarget, '');
+        setInfoField(infoPinyin, '');
+        setInfoField(infoGloss, '');
       }
       function getLine(lineIndex){
         return data.lines[lineIndex] || { text: '', chars: [], phrases: [] };
@@ -529,7 +661,8 @@
       function showBubble(el, payload){
         if(!bubble || !el) return;
         const glossHtml = payload.gloss ? escapeHtml(payload.gloss).replace(/\n/g, '<br />') : '<span class="b-empty">暂无释义</span>';
-        bubble.innerHTML = '<div class="b-hd"><span class="b-char">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + glossHtml + '</div>';
+        const scopeTag = payload.scope && payload.scope !== '—' ? '<span class="b-scope">' + escapeHtml(payload.scope) + '</span>' : '';
+        bubble.innerHTML = '<div class="b-hd"><span class="b-char">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span>' + scopeTag + '</div><div class="b-gloss">' + glossHtml + '</div>';
         bubble.style.display = 'block';
         requestAnimationFrame(() => {
           const rect = el.getBoundingClientRect();
@@ -608,17 +741,18 @@
       }
 
       enhancePanel();
+      resetInfo();
       document.addEventListener('click', ev => {
         if(ev.target.closest('.char')) return;
         if(ev.target.closest('.bubble')) return;
         clearActive();
-        updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+        resetInfo();
         hideBubble();
       });
       document.addEventListener('keydown', ev => {
         if(ev.key === 'Escape'){
           clearActive();
-          updateInfo({ scope: '—', title: '—', pinyin: '—', gloss: '—' });
+          resetInfo();
           hideBubble();
         }
       });
