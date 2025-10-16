@@ -460,11 +460,13 @@ function buildPageHtml(meta, content, translation){
       var phPinyin = document.getElementById('phPinyin');
       var phGloss = document.getElementById('phGloss');
       var state = { line: -1, index: -1 };
-      var punctuationRe = /[\u3000\s，。、“”《》？！；：（）——…,.!?;:()\-\[\]{}]/;
 
       function escapeHtml(str){
-        return String(str == null ? '' : str).replace(/[&<>\"']/g, function(c){
-          return {'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;','\'':'&#39;'}[c];
+        var replacements = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
+        replacements['"'] = '&quot;';
+        replacements["'"] = '&#39;';
+        return String(str == null ? '' : str).replace(/[&<>"']/g, function(c){
+          return replacements[c] || c;
         });
       }
 
@@ -516,7 +518,7 @@ function buildPageHtml(meta, content, translation){
       function showBubble(el, payload){
         if(!bubble || !el) return;
         var gloss = payload.gloss || '';
-        var glossHtml = gloss ? escapeHtml(gloss).replace(/\n/g, '<br />') : '<span class="b-empty">暂无释义</span>';
+        var glossHtml = gloss ? escapeHtml(gloss).split(String.fromCharCode(10)).join('<br />') : '<span class="b-empty">暂无释义</span>';
         bubble.innerHTML = '<div class="b-hd"><span class="b-char">' + escapeHtml(payload.title || '—') + '</span><span class="b-pinyin">' + escapeHtml(payload.pinyin || '—') + '</span></div><div class="b-gloss">' + glossHtml + '</div>';
         bubble.style.display = 'block';
         requestAnimationFrame(function(){
