@@ -122,9 +122,29 @@ function parseContent(text){
       vernacular = text.slice(idxWhite + whiteMark.length);
     }
   }
-  const originalLines = original.split(/\r?\n+/).map(s => s.trim()).filter(Boolean);
+  const rawLines = original.split(/\r?\n+/);
+  const cleanedLines = [];
+  let lastWasBlank = true;
+  rawLines.forEach(line => {
+    const trimmed = line.trim();
+    const normalized = trimmed.replace(/^(?:【原文】|原文[:：])\s*/, '').trim();
+    if(!normalized){
+      if(!lastWasBlank && cleanedLines.length){
+        cleanedLines.push('');
+      }
+      lastWasBlank = true;
+      return;
+    }
+    if(/^【.+?】$/.test(normalized) || /^标题[:：]/.test(normalized)){
+      return;
+    }
+    cleanedLines.push(normalized);
+    lastWasBlank = false;
+  });
+  const originalLines = cleanedLines.filter(Boolean);
+  const originalText = cleanedLines.join('\n').trim();
   return {
-    originalText: original.trim(),
+    originalText,
     originalLines,
     vernacular: vernacular.trim(),
     comment: comment.trim()
