@@ -155,7 +155,7 @@
         </div>
         <div class="divider"></div>
         <p class="hint">优先级：<span class="highlight">词组注释 &gt; 单字注释</span>。点字时若命中词组，将显示词组释义并在气泡中突出。</p>
-        <p class="small">数据自动保存到 LocalStorage；可导出 JSON 备份。</p>
+        <p class="small">数据仅在当前会话暂存；若需保留请导出 JSON 备份。</p>
       </section>
     </div>
 
@@ -163,7 +163,20 @@
   </div>
 
   <script type="module">
-  const store={key:'liaozhai_notes_v2',load(){try{return JSON.parse(localStorage.getItem(this.key)||'{}')}catch(e){return{}}},save(d){localStorage.setItem(this.key,JSON.stringify(d))},clear(){localStorage.removeItem(this.key)}};
+  const store={
+    key:'liaozhai_notes_v2',
+    load(){
+      try{
+        const legacy=localStorage.getItem(this.key);
+        if(legacy!==null){
+          localStorage.removeItem(this.key);
+        }
+      }catch(_){/* ignore */}
+      return {title:'',lines:[],phrases:{}};
+    },
+    save(){/* 注释仅在当前会话内维护，不再自动写入本地存储 */},
+    clear(){try{localStorage.removeItem(this.key);}catch(_){}}
+  };
   let notes=store.load();
   let current={line:-1,idx:-1,char:''};
   let phraseMode=false;let phraseStart=null;
