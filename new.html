@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>字阵 · 文言机 (最终修复版)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500;700&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg-color: #f6f3e8;
+      --text-main: #2b2b2b;
+      --text-light: #666;
+      --accent-red: #c0392b;
+      --accent-green: #5d7a6f;
+      --border-color: #eee;
+      --card: rgba(255, 255, 255, 0.85);
+    }
+
+    @font-face { font-family: "GlyphOracle"; src: url("甲骨文.ttf") format("truetype"); font-display: swap; }
+    @font-face { font-family: "GlyphBronze"; src: url("金文大篆体.ttf") format("truetype"); font-display: swap; }
+    @font-face { font-family: "GlyphSeal"; src: url("方正小篆体.ttf") format("truetype"); font-display: swap; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: "Noto Sans SC", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 18px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(246, 243, 232, 0.98);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      position: sticky; top: 0; z-index: 20;
+    }
+
+    .book-title { font-family: "Noto Serif SC", serif; font-size: 20px; font-weight: 700; }
+    .header-actions { display: flex; gap: 10px; }
+
+    button {
+      border: none; border-radius: 999px; padding: 8px 16px; font-size: 14px;
+      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-secondary { background: #fff; border: 1px solid rgba(0, 0, 0, 0.06); }
+    .btn-primary { background: var(--accent-green); color: #fff; box-shadow: 0 8px 20px rgba(93, 122, 111, 0.25); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+
+    .control-panel {
+      padding: 20px 24px 10px;
+      display: grid; grid-template-columns: 1fr 260px; gap: 20px;
+    }
+
+    .control-panel textarea {
+      width: 100%; min-height: 140px; border: 1px solid var(--border-color);
+      border-radius: 18px; padding: 18px; font-size: 16px; line-height: 1.8;
+      background: #fff; font-family: "Noto Serif SC", serif; resize: none;
+    }
+
+    .control-meta {
+      background: var(--card); border: 1px solid var(--border-color);
+      border-radius: 18px; padding: 18px; display: flex; flex-direction: column;
+      gap: 14px; max-height: calc(100vh - 150px); overflow-y: auto;
+    }
+
+    .batch-panel {
+      margin-top: 12px; border: 1px dashed var(--border-color); border-radius: 12px;
+      padding: 12px; background: rgba(255, 255, 255, 0.6);
+    }
+    .batch-files {
+      margin-top: 10px; max-height: 120px; overflow-y: auto;
+      border: 1px solid #ddd; border-radius: 10px; padding: 8px;
+      background: #fff; font-size: 13px;
+    }
+    .batch-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee; }
+    .batch-item:last-child { border-bottom: none; }
+    .batch-item button { border: none; background: none; color: #c0392b; cursor: pointer; }
+
+    .meta-title { font-weight: 600; font-size: 14px; color: var(--text-light); }
+    .status-pill { background: rgba(93, 122, 111, 0.1); color: var(--accent-green); padding: 6px 12px; border-radius: 999px; font-size: 12px; }
+
+    .reader-wrapper { flex: 1; padding: 0 24px 24px; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .reader-container { padding: 24px; border-radius: 24px; background: #fff; line-height: 2.2; font-size: 26px; font-family: "Noto Serif SC", serif; min-height: 320px; }
+    .translation-panel { background: #fff; border-radius: 24px; padding: 24px; border: 1px solid var(--border-color); min-height: 320px; }
+    .translation-panel h3 { font-size: 16px; color: var(--text-light); margin-bottom: 10px; }
+    .translation-panel p { font-family: "Noto Sans SC", sans-serif; line-height: 1.8; margin-bottom: 10px; font-size: 15px; color: var(--text-main); }
+
+    .char { display: inline-block; padding: 2px 3px; border-radius: 6px; cursor: pointer; transition: all 0.2s; position: relative; }
+    .char.active { background-color: var(--accent-red); color: #fff; transform: scale(1.08); z-index: 2; }
+    .punct { display: inline-block; margin-right: 4px; color: #999; }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 90; }
+    .overlay.show { opacity: 1; pointer-events: auto; }
+    .bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 20px 20px 0 0; transform: translateY(105%); transition: transform 0.35s; z-index: 100; height: 70vh; display: flex; flex-direction: column; }
+    .bottom-sheet.show { transform: translateY(0); }
+    .sheet-handle { width: 42px; height: 5px; background: #ddd; border-radius: 999px; margin: 10px auto; }
+    .sheet-header { padding: 8px 24px 16px; border-bottom: 1px solid #eee; display: flex; align-items: flex-end; gap: 12px; }
+    .big-char { font-size: 48px; font-family: "Noto Serif SC", serif; }
+    .pinyin { font-size: 18px; color: var(--accent-red); font-weight: 600; }
+    .radical { font-size: 13px; color: #888; background: #f5f5f5; padding: 2px 8px; border-radius: 6px; }
+
+    .tabs { display: flex; border-bottom: 1px solid #eee; }
+    .tab { flex: 1; text-align: center; padding: 14px 0; color: #888; cursor: pointer; }
+    .tab.active { color: var(--accent-green); font-weight: 600; border-bottom: 3px solid var(--accent-green); }
+    .sheet-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .context-meaning { margin-bottom: 12px; }
+    .context-term { font-size: 20px; font-weight: 600; }
+    .context-label { font-size: 12px; border: 1px solid #ddd; padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
+    .context-def { margin-top: 6px; color: #444; }
+    .translation-box { background: #f9f9f9; padding: 14px; border-radius: 10px; margin-top: 15px; font-size: 15px; }
+    .dict-list-item { margin-bottom: 6px; }
+
+    /* 字源字体回退 */
+    .font-oracle { font-family: "GlyphOracle", "KaiTi", "楷体", serif; }
+    .font-bronze { font-family: "GlyphBronze", "KaiTi", "楷体", serif; }
+    .font-seal { font-family: "GlyphSeal", "FZShuTi", "KaiTi", "楷体", serif; }
+
+    .settings-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 120; }
+    .settings-modal.active { display: flex; }
+    .modal-card { background: #fff; border-radius: 20px; padding: 28px; width: min(480px, 92vw); }
+    .log-panel { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background: #f0f0f0; border-radius: 10px; padding: 10px; max-height: 140px; overflow-y: auto; }
+    input { border: 1px solid #ddd; border-radius: 10px; outline: none; }
+    input:focus { border-color: rgba(93, 122, 111, 0.9); box-shadow: 0 0 0 3px rgba(93, 122, 111, 0.12); }
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="book-title">字阵 · 三层文言机</div>
+    <div class="header-actions">
+      <button class="btn-secondary" id="btnDownload" type="button">导出结果</button>
+      <button class="btn-secondary" id="btnSettings" type="button">API 设置</button>
+      <button class="btn-primary" id="btnTranslate" type="button">单篇处理</button>
+    </div>
+  </div>
+
+  <section class="control-panel">
+    <div>
+      <textarea id="textInput" placeholder="在此输入或粘贴文言文..."></textarea>
+
+      <div class="batch-panel">
+        <div class="meta-title">批量导入（支持 .txt）</div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <!-- 添加 type="button" 防止意外提交 -->
+          <button class="btn-secondary" id="btnBatchImport" type="button">导入文件</button>
+          <button class="btn-secondary" id="btnBatchStart" type="button">开始批量</button>
+          <span id="batchInfo" style="font-size:12px; color:#666; align-self:center;">未导入任务</span>
+        </div>
+        <!-- input 放在这里 -->
+        <input type="file" id="batchFile" multiple accept=".txt,text/plain" style="display:none" />
+        <div id="batchFiles" class="batch-files" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="control-meta">
+      <div>
+        <div class="meta-title">系统状态</div>
+        <div class="status-pill" id="statusPill">待命</div>
+      </div>
+
+      <div>
+        <div class="meta-title">词库缓存</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+          <div style="display:flex; gap:6px;">
+            <button class="btn-secondary" id="btnImportCache" type="button" style="flex:1;">导入</button>
+            <button class="btn-secondary" id="btnExportCache" type="button" style="flex:1;">导出</button>
+          </div>
+          <input type="file" id="cacheFile" accept=".json" style="display:none" />
+          <div id="cacheInfo" style="font-size:12px; color:#666;">词条：0</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="meta-title">运行日志</div>
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reader-wrapper">
+    <div class="reader-container" id="reader" style="color:#888; font-size:16px;">
+      译文生成后点击任意汉字查看详情
+    </div>
+    <div class="translation-panel">
+      <h3>白话译文</h3>
+      <div id="fullTranslation"></div>
+    </div>
+  </section>
+
+  <div class="overlay" id="overlay"></div>
+  <div class="bottom-sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header" id="sheetHeader"></div>
+    <div class="tabs">
+      <div class="tab active" data-tab="context">当前义</div>
+      <div class="tab" data-tab="dict">字典</div>
+      <div class="tab" data-tab="origin">字源</div>
+    </div>
+    <div class="sheet-body">
+      <div id="tab-context" class="tab-content active"></div>
+      <div id="tab-dict" class="tab-content"></div>
+      <div id="tab-origin" class="tab-content"></div>
+    </div>
+  </div>
+
+  <div class="settings-modal" id="settingsModal">
+    <div class="modal-card">
+      <h2 style="font-size:18px;">API 配置</h2>
+      <div style="margin-top:15px;">
+        <label style="font-size:12px;">Base URL</label>
+        <input id="apiUrl" style="width:100%; padding:10px 12px; margin-top:6px;" />
+      </div>
+      <div style="margin-top:10px;">
+        <label style="font-size:12px;">API Key</label>
+        <input id="apiKey" type="password" style="width:100%; padding:10px 12px; margin-top:6px;" />
+      </div>
+      <div style="margin-top:10px;">
+        <label style="font-size:12px;">模型</label>
+        <input id="apiModel" style="width:100%; padding:10px 12px; margin-top:6px;" />
+      </div>
+      <div style="margin-top:20px; text-align:right;">
+        <button class="btn-secondary" id="btnCloseSettings">取消</button>
+        <button class="btn-primary" id="btnSaveSettings">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // 工具 & 状态
+    // =========================================================
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+    
+    const store = {
+      get() { try { return JSON.parse(localStorage.getItem("wenyan_cfg")) || {}; } catch { return {}; } },
+      set(d) { localStorage.setItem("wenyan_cfg", JSON.stringify(d)); }
+    };
+
+    const logger = {
+      el: null,
+      clear() { if (!this.el) this.el = $("#logPanel"); this.el.innerHTML = ""; },
+      log(msg, type) {
+        if (!this.el) this.el = $("#logPanel");
+        const div = document.createElement("div");
+        div.style.color = type === "error" ? "red" : (type === "success" ? "green" : "#444");
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        this.el.appendChild(div);
+        this.el.scrollTop = this.el.scrollHeight;
+      }
+    };
+
+    const dictCacheKey = "wenyan_dict_v3";
+    let dictCache = {};
+    let batchQueue = [];
+    let isRunning = false;
+    let currentResult = null;
+
+    // =========================================================
+    // 初始化 (Init)
+    // =========================================================
+    document.addEventListener("DOMContentLoaded", () => {
+      // 1. 加载缓存
+      dictCache = loadCache();
+      updateCacheInfo();
+
+      // 2. 加载配置
+      const cfg = store.get();
+      $("#apiUrl").value = cfg.url || "https://api.deepseek.com/v1/chat/completions";
+      $("#apiKey").value = cfg.key || "";
+      $("#apiModel").value = cfg.model || "deepseek-chat";
+
+      // 3. 强制重置按钮状态 (防止上次报错导致按钮一直 disabled)
+      resetButtons();
+
+      // 4. 绑定事件
+      $("#btnSettings").onclick = () => $("#settingsModal").classList.add("active");
+      $("#btnCloseSettings").onclick = () => $("#settingsModal").classList.remove("active");
+      $("#btnSaveSettings").onclick = () => {
+        store.set({
+          url: $("#apiUrl").value.trim(),
+          key: $("#apiKey").value.trim(),
+          model: $("#apiModel").value.trim()
+        });
+        $("#settingsModal").classList.remove("active");
+        logger.log("配置已保存", "success");
+      };
+
+      $("#btnTranslate").onclick = () => processSingle($("#textInput").value);
+
+      // 批量导入逻辑优化
+      $("#btnBatchImport").onclick = () => {
+        const fileInput = $("#batchFile");
+        if(fileInput) fileInput.click();
+      };
+      $("#batchFile").onchange = handleFiles;
+      
+      $("#btnBatchStart").onclick = runBatch;
+
+      // 缓存导入导出
+      $("#btnImportCache").onclick = () => $("#cacheFile").click();
+      $("#cacheFile").onchange = handleCacheImport;
+      $("#btnExportCache").onclick = () => download(dictCache, "wenyan_cache_export.json");
+
+      $("#btnDownload").onclick = () => download(currentResult, "translation.json");
+
+      $("#overlay").onclick = closeSheet;
+      $$(".tab").forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+    });
+
+    function resetButtons() {
+      $("#btnTranslate").disabled = false;
+      $("#btnBatchImport").disabled = false;
+      $("#btnBatchStart").disabled = false;
+    }
+
+    // =========================================================
+    // 核心：双阶段处理逻辑
+    // =========================================================
+    
+    // 分段：100字限制，防超时
+    function splitText(text) {
+      const t = (text||"").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+      if (!t) return [];
+      const rawLines = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      const chunks = [];
+      const TARGET_LEN = 100;
+      rawLines.forEach(line => {
+        const parts = line.split(/([。！？；;?!\.])/).reduce((acc, curr, idx, arr) => {
+          if (idx % 2 === 0) {
+            const punct = arr[idx + 1] || "";
+            const s = (curr + punct).trim();
+            if(s) acc.push(s);
+          }
+          return acc;
+        }, []);
+        let buffer = "";
+        parts.forEach(p => {
+          if ((buffer + p).length > TARGET_LEN) {
+            if (buffer) chunks.push(buffer);
+            buffer = p;
+          } else {
+            buffer += p;
+          }
+        });
+        if (buffer) chunks.push(buffer);
+      });
+      return chunks;
+    }
+
+    async function processSingle(text, isAutoSave = false, fileName = "result") {
+      const chunks = splitText(text);
+      if (!chunks.length) return;
+      
+      const cfg = store.get();
+      if (!cfg.key) return alert("请设置 API Key");
+
+      logger.clear();
+      setStatus("正在处理...");
+      $("#btnTranslate").disabled = true;
+      
+      const result = { sentences: [], dictionary: {} };
+
+      try {
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          logger.log(`段落 ${i+1}/${chunks.length}：正在分析上下文...`);
+          
+          // --- 第一阶段：翻译 + 语境义 (不查缓存) ---
+          const stage1Data = await callStage1(chunk, cfg);
+          
+          // 渲染部分结果
+          const words = stage1Data.tokens.map(t => ({
+            c: t.c,
+            phrase: t.phrase || "",
+            mean: t.mean || "", // 这是语境义
+            p: t.p || "",
+            pMean: t.phrase_mean || "" // 词组语境义
+          }));
+          
+          result.sentences.push({ orig: chunk, trans: stage1Data.trans, words });
+          render(result); // 实时刷新 UI
+
+          // --- 第二阶段：查字典 ---
+          const missingTokens = [];
+          const missingPhrases = [];
+
+          words.forEach(w => {
+            if (w.c && !isPunctuation(w.c)) {
+              if (!dictCache[w.c]) missingTokens.push(w.c);
+              else result.dictionary[w.c] = asEntryArray(dictCache[w.c])[0];
+            }
+            if (w.phrase && w.phrase.length > 1) {
+              if (!dictCache[w.phrase]) missingPhrases.push(w.phrase);
+              else result.dictionary[w.phrase] = asEntryArray(dictCache[w.phrase])[0];
+            }
+          });
+
+          const uniqueMissing = [...new Set([...missingTokens, ...missingPhrases])];
+
+          if (uniqueMissing.length > 0) {
+            logger.log(`段落 ${i+1}：发现 ${uniqueMissing.length} 个新词，正在查阅字典...`, "info");
+            const newDicts = await callStage2(uniqueMissing, cfg);
+            
+            Object.entries(newDicts).forEach(([key, entry]) => {
+              upsertCharEntry(key, entry);
+              result.dictionary[key] = entry;
+            });
+            saveCache();
+          } else {
+            logger.log(`段落 ${i+1}：全词命中缓存，跳过字典查询`, "success");
+          }
+
+          if(i < chunks.length - 1) await new Promise(r => setTimeout(r, 1000));
+        }
+
+        currentResult = result;
+        if (isAutoSave) download(result, `${fileName}.json`);
+        setStatus("就绪");
+        logger.log("全部完成", "success");
+
+      } catch (e) {
+        logger.log("错误：" + e.message, "error");
+        setStatus("失败");
+      } finally {
+        $("#btnTranslate").disabled = false;
+      }
+    }
+
+    // Stage 1
+    async function callStage1(text, cfg) {
+      const prompt = `你是一个古代汉语专家。请分析文言文段落。
+任务：
+1. 翻译全段为白话文。
+2. 逐字拆解，给出每个字、词在【当前段落语境下】的确切含义。
+
+返回严格 JSON：
+{
+  "trans": "白话译文",
+  "tokens": [
+    {
+      "c": "字或标点",
+      "p": "拼音",
+      "mean": "当前语境下的简短解释",
+      "phrase": "所在词组(可选)",
+      "phrase_mean": "词组在当前语境下的解释"
+    }
+  ]
+}
+要求：tokens 必须包含原文所有字符，顺序一致。`;
+
+      return await fetchWithRetry(cfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: text }
+      ]);
+    }
+
+    // Stage 2
+    async function callStage2(terms, cfg) {
+      const listStr = terms.join("、");
+      const prompt = `你是一部文言文词典。请为以下生字/词提供【标准字典释义】。
+生词列表：${listStr}
+
+返回严格 JSON，Key 是生词，Value 是详情：
+{
+  "字或词": {
+    "p": "拼音",
+    "pos": "词性",
+    "g": "完整释义列表(多义项用分号隔开)",
+    "ety": { "origin": "字源/出处", "type": "造字法" }
+  }
+}
+注意：ety 字段仅单字需要。`;
+
+      return await fetchWithRetry(cfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: "请生成字典数据。" }
+      ]);
+    }
+
+    // 超时设置为 180s
+    async function fetchWithRetry(cfg, messages, retries = 3) {
+      const body = {
+        model: cfg.model,
+        messages: messages,
+        temperature: 0.1,
+        response_format: { type: "json_object" }
+      };
+
+      for (let i = 0; i < retries; i++) {
+        try {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 360000); 
+          const res = await fetch(cfg.url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${cfg.key}` },
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+          clearTimeout(id);
+          
+          if (!res.ok) {
+             const txt = await res.text();
+             throw new Error(`HTTP ${res.status}: ${txt.slice(0, 50)}`);
+          }
+          const data = await res.json();
+          const content = data.choices[0].message.content;
+          return safeJsonParse(content);
+        } catch (e) {
+          if (i === retries - 1) throw e;
+          logger.log(`请求超时/失败，正在重试 (${i+1}/${retries})...`, "info");
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    }
+
+    // =========================================================
+    // 缓存与通用
+    // =========================================================
+    function isPunctuation(char) { return /[\u3000\s，。？！；：“”‘’、《》〈〉——…\-,.?!;:(){}[\]]/.test(char); }
+    
+    function safeJsonParse(text) {
+      try { return JSON.parse(text); } catch {}
+      const clean = text.replace(/^```json\s*/i, "").replace(/```$/g, "").trim();
+      try { return JSON.parse(clean); } catch {}
+      return null;
+    }
+
+    function loadCache() { try { return JSON.parse(localStorage.getItem(dictCacheKey)||"{}"); } catch { return {}; } }
+    function saveCache() { localStorage.setItem(dictCacheKey, JSON.stringify(dictCache)); updateCacheInfo(); }
+    function updateCacheInfo() { $("#cacheInfo").textContent = `词条：${Object.keys(dictCache).length}`; }
+    function setStatus(s) { $("#statusPill").textContent = s; }
+
+    function asEntryArray(v) {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      return [v];
+    }
+
+    function upsertCharEntry(key, entry) {
+      if (!key || !entry) return;
+      const arr = asEntryArray(dictCache[key]);
+      const exists = arr.some(e => e.p === entry.p && e.g === entry.g);
+      if (!exists) {
+        arr.unshift(entry); 
+        dictCache[key] = arr;
+      }
+    }
+
+    function handleCacheImport(e) {
+      const file = e.target.files?.[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try { Object.assign(dictCache, JSON.parse(ev.target.result)); saveCache(); alert("导入成功"); } catch{ alert("格式错误"); }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    }
+
+    // =========================================================
+    // 批量 (复用 processSingle)
+    // =========================================================
+    function handleFiles(e) {
+      const files = Array.from(e.target.files||[]);
+      files.forEach(f => {
+        if(!f.name.toLowerCase().endsWith(".txt")) return;
+        const r = new FileReader();
+        r.onload = ev => { batchQueue.push({name: f.name, text: ev.target.result}); renderBatchList(); };
+        r.readAsText(f);
+      });
+      e.target.value = "";
+    }
+    function renderBatchList() {
+      $("#batchFiles").style.display = batchQueue.length ? "block" : "none";
+      $("#batchFiles").innerHTML = batchQueue.map((f,i) => 
+        `<div class="batch-item"><span>${escapeHtml(f.name)}</span><button onclick="removeBatch(${i})">删除</button></div>`
+      ).join("");
+      $("#batchInfo").textContent = batchQueue.length ? `待处理：${batchQueue.length}` : "未导入";
+    }
+    window.removeBatch = (i) => {
+      batchQueue.splice(i, 1);
+      renderBatchList();
+    };
+
+    async function runBatch() {
+      if(isRunning || !batchQueue.length) return;
+      const cfg = store.get();
+      if(!cfg.key) return alert("API Key Missing");
+      isRunning = true;
+      $("#btnBatchStart").disabled = true;
+      $("#btnBatchImport").disabled = true; // 运行时禁用导入
+      try {
+        for(let i=0; i<batchQueue.length; i++) {
+          logger.log(`批量处理：${batchQueue[i].name}`);
+          await processSingle(batchQueue[i].text, true, batchQueue[i].name.replace(".txt",""));
+        }
+        alert("批量完成");
+      } finally {
+        isRunning = false;
+        $("#btnBatchStart").disabled = false;
+        $("#btnBatchImport").disabled = false; // 恢复导入按钮
+        batchQueue = [];
+        renderBatchList();
+      }
+    }
+
+    // =========================================================
+    // UI 渲染
+    // =========================================================
+    function render(data) {
+      $("#reader").innerHTML = "";
+      $("#fullTranslation").innerHTML = "";
+      data.sentences.forEach(s => {
+        const p = document.createElement("p");
+        p.className = "reader-line";
+        s.words.forEach(w => {
+          const span = document.createElement("span");
+          span.textContent = w.c;
+          if(isPunctuation(w.c)) span.className = "punct";
+          else {
+            span.className = "char";
+            span.onclick = () => openDetail(span, w, s, data.dictionary);
+          }
+          p.appendChild(span);
+        });
+        $("#reader").appendChild(p);
+        $("#fullTranslation").innerHTML += `<p>${escapeHtml(s.trans)}</p>`;
+      });
+    }
+
+    function openDetail(el, word, sentence, dict) {
+      $$(".char.active").forEach(n=>n.classList.remove("active"));
+      el.classList.add("active");
+
+      const cachedEntry = dict[word.c] || {}; 
+      const phraseEntry = word.phrase ? (dict[word.phrase] || {}) : null;
+
+      $("#sheetHeader").innerHTML = `
+        <span class="big-char">${escapeHtml(word.c)}</span>
+        <span class="pinyin">[ ${escapeHtml(word.p || cachedEntry.p || "")} ]</span>
+        <span class="radical">${escapeHtml(cachedEntry.pos || "")}</span>
+      `;
+
+      $("#tab-context").innerHTML = `
+        <div class="context-meaning">
+          <div class="context-term">单字：${escapeHtml(word.c)}</div>
+          <div class="context-def"><b>当前义：</b>${escapeHtml(word.mean || "暂无")}</div>
+        </div>
+        ${word.phrase ? `
+        <div class="context-meaning">
+          <div class="context-term">词组：${escapeHtml(word.phrase)}</div>
+          <div class="context-def"><b>当前义：</b>${escapeHtml(word.pMean || "暂无")}</div>
+        </div>` : ''}
+        <div class="translation-box">
+          <b>原句：</b>${escapeHtml(sentence.orig)}<br>
+          <b>译文：</b>${escapeHtml(sentence.trans)}
+        </div>
+      `;
+
+      let dictHtml = "";
+      if (phraseEntry && phraseEntry.g) {
+         dictHtml += `<div class="dict-list-item"><b>【${word.phrase}】</b><br>${formatDictText(phraseEntry.g)}</div><hr style="margin:10px 0;border:0;border-top:1px dashed #eee;">`;
+      }
+      dictHtml += `<div class="dict-list-item"><b>【${word.c}】</b><br>${formatDictText(cachedEntry.g)}</div>`;
+      
+      $("#tab-dict").innerHTML = dictHtml || "暂无字典数据";
+
+      const ety = cachedEntry.ety || {};
+      $("#tab-origin").innerHTML = `
+        <div class="context-meaning">
+           <div class="evo-char font-oracle" style="font-size:32px;text-align:center;margin:10px auto;">${escapeHtml(word.c)}</div>
+           <p><b>来源：</b>${escapeHtml(ety.origin || "暂无")}</p>
+           <p><b>造字：</b>${escapeHtml(ety.type || "暂无")}</p>
+        </div>
+      `;
+
+      $("#sheet").classList.add("show");
+      $("#overlay").classList.add("show");
+      switchTab("context");
+    }
+
+    function formatDictText(text) {
+      if(!text) return "暂无";
+      return escapeHtml(text).replace(/[；;]/g, "<br>• ");
+    }
+
+    function switchTab(n) {
+      $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === n));
+      $$(".tab-content").forEach(c => c.classList.toggle("active", c.id === `tab-${n}`));
+    }
+    function closeSheet() { $("#sheet").classList.remove("show"); $("#overlay").classList.remove("show"); $$(".char.active").forEach(n=>n.classList.remove("active")); }
+    function download(d, n) { if(!d)return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(d,null,2)])); a.download = n; a.click(); }
+    function escapeHtml(s) { return String(s||"").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  </script>
+</body>
+</html>
