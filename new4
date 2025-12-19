@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>字阵 · 双核文言机 (双API版)</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;500;700&family=Noto+Sans+SC:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg-color: #f6f3e8;
+      --text-main: #2b2b2b;
+      --text-light: #666;
+      --accent-red: #c0392b;
+      --accent-green: #5d7a6f;
+      --border-color: #eee;
+      --card: rgba(255, 255, 255, 0.85);
+    }
+
+    @font-face { font-family: "GlyphOracle"; src: url("甲骨文.ttf") format("truetype"); font-display: swap; }
+    @font-face { font-family: "GlyphBronze"; src: url("金文大篆体.ttf") format("truetype"); font-display: swap; }
+    @font-face { font-family: "GlyphSeal"; src: url("方正小篆体.ttf") format("truetype"); font-display: swap; }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: "Noto Sans SC", sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .header {
+      padding: 18px 24px;
+      display: flex; justify-content: space-between; align-items: center;
+      background: rgba(246, 243, 232, 0.98);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+      position: sticky; top: 0; z-index: 20;
+    }
+
+    .book-title { font-family: "Noto Serif SC", serif; font-size: 20px; font-weight: 700; }
+    .header-actions { display: flex; gap: 10px; }
+
+    button {
+      border: none; border-radius: 999px; padding: 8px 16px; font-size: 14px;
+      cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-secondary { background: #fff; border: 1px solid rgba(0, 0, 0, 0.06); }
+    .btn-primary { background: var(--accent-green); color: #fff; box-shadow: 0 8px 20px rgba(93, 122, 111, 0.25); }
+    button:disabled { opacity: 0.6; cursor: not-allowed; box-shadow: none; }
+
+    .control-panel {
+      padding: 20px 24px 10px;
+      display: grid; grid-template-columns: 1fr 260px; gap: 20px;
+    }
+
+    .control-panel textarea {
+      width: 100%; min-height: 140px; border: 1px solid var(--border-color);
+      border-radius: 18px; padding: 18px; font-size: 16px; line-height: 1.8;
+      background: #fff; font-family: "Noto Serif SC", serif; resize: none;
+    }
+
+    .control-meta {
+      background: var(--card); border: 1px solid var(--border-color);
+      border-radius: 18px; padding: 18px; display: flex; flex-direction: column;
+      gap: 14px; max-height: calc(100vh - 150px); overflow-y: auto;
+    }
+
+    .batch-panel {
+      margin-top: 12px; border: 1px dashed var(--border-color); border-radius: 12px;
+      padding: 12px; background: rgba(255, 255, 255, 0.6);
+    }
+    .batch-files {
+      margin-top: 10px; max-height: 120px; overflow-y: auto;
+      border: 1px solid #ddd; border-radius: 10px; padding: 8px;
+      background: #fff; font-size: 13px;
+    }
+    .batch-item { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid #eee; }
+    .batch-item:last-child { border-bottom: none; }
+    .batch-item button { border: none; background: none; color: #c0392b; cursor: pointer; }
+
+    .meta-title { font-weight: 600; font-size: 14px; color: var(--text-light); }
+    .status-pill { background: rgba(93, 122, 111, 0.1); color: var(--accent-green); padding: 6px 12px; border-radius: 999px; font-size: 12px; }
+
+    .reader-wrapper { flex: 1; padding: 0 24px 24px; display: grid; grid-template-columns: 2fr 1fr; gap: 24px; }
+    .reader-container { padding: 24px; border-radius: 24px; background: #fff; line-height: 2.2; font-size: 26px; font-family: "Noto Serif SC", serif; min-height: 320px; }
+    .translation-panel { background: #fff; border-radius: 24px; padding: 24px; border: 1px solid var(--border-color); min-height: 320px; }
+    .translation-panel h3 { font-size: 16px; color: var(--text-light); margin-bottom: 10px; }
+    .translation-panel p { font-family: "Noto Sans SC", sans-serif; line-height: 1.8; margin-bottom: 10px; font-size: 15px; color: var(--text-main); }
+
+    .char { display: inline-block; padding: 2px 3px; border-radius: 6px; cursor: pointer; transition: all 0.2s; position: relative; }
+    .char.active { background-color: var(--accent-red); color: #fff; transform: scale(1.08); z-index: 2; }
+    .punct { display: inline-block; margin-right: 4px; color: #999; font-family: "Noto Serif SC", serif; }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); opacity: 0; pointer-events: none; transition: opacity 0.3s; z-index: 90; }
+    .overlay.show { opacity: 1; pointer-events: auto; }
+    .bottom-sheet { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-radius: 20px 20px 0 0; transform: translateY(105%); transition: transform 0.35s; z-index: 100; height: 70vh; display: flex; flex-direction: column; }
+    .bottom-sheet.show { transform: translateY(0); }
+    .sheet-handle { width: 42px; height: 5px; background: #ddd; border-radius: 999px; margin: 10px auto; }
+    .sheet-header { padding: 8px 24px 16px; border-bottom: 1px solid #eee; display: flex; align-items: flex-end; gap: 12px; }
+    .big-char { font-size: 48px; font-family: "Noto Serif SC", serif; }
+    .pinyin { font-size: 18px; color: var(--accent-red); font-weight: 600; }
+    .radical { font-size: 13px; color: #888; background: #f5f5f5; padding: 2px 8px; border-radius: 6px; }
+
+    .tabs { display: flex; border-bottom: 1px solid #eee; }
+    .tab { flex: 1; text-align: center; padding: 14px 0; color: #888; cursor: pointer; }
+    .tab.active { color: var(--accent-green); font-weight: 600; border-bottom: 3px solid var(--accent-green); }
+    .sheet-body { flex: 1; overflow-y: auto; padding: 20px 24px; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .context-meaning { margin-bottom: 12px; }
+    .context-term { font-size: 20px; font-weight: 600; }
+    .context-label { font-size: 12px; border: 1px solid #ddd; padding: 2px 6px; border-radius: 4px; margin-right: 6px; }
+    .context-def { margin-top: 6px; color: #444; }
+    .translation-box { background: #f9f9f9; padding: 14px; border-radius: 10px; margin-top: 15px; font-size: 15px; }
+    .dict-list-item { margin-bottom: 6px; }
+
+    /* 字源字体回退 */
+    .font-oracle { font-family: "GlyphOracle", "KaiTi", "楷体", serif; }
+    .font-bronze { font-family: "GlyphBronze", "KaiTi", "楷体", serif; }
+    .font-seal { font-family: "GlyphSeal", "FZShuTi", "KaiTi", "楷体", serif; }
+
+    .settings-modal { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 120; }
+    .settings-modal.active { display: flex; }
+    .modal-card { background: #fff; border-radius: 20px; padding: 28px; width: min(480px, 92vw); max-height: 90vh; overflow-y: auto;}
+    .log-panel { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; background: #f0f0f0; border-radius: 10px; padding: 10px; max-height: 140px; overflow-y: auto; }
+    input { border: 1px solid #ddd; border-radius: 10px; outline: none; }
+    input:focus { border-color: rgba(93, 122, 111, 0.9); box-shadow: 0 0 0 3px rgba(93, 122, 111, 0.12); }
+    
+    .setting-group { margin-bottom: 20px; border: 1px solid #eee; padding: 15px; border-radius: 12px; background: #fcfcfc; }
+    .setting-group h4 { font-size: 14px; color: var(--accent-green); margin-bottom: 10px; border-bottom: 1px dashed #ddd; padding-bottom: 6px;}
+  </style>
+</head>
+
+<body>
+  <div class="header">
+    <div class="book-title">字阵 · 双核文言机</div>
+    <div class="header-actions">
+      <button class="btn-secondary" id="btnDownload" type="button">导出结果</button>
+      <button class="btn-secondary" id="btnSettings" type="button">API 设置</button>
+      <button class="btn-primary" id="btnTranslate" type="button">单篇处理</button>
+    </div>
+  </div>
+
+  <section class="control-panel">
+    <div>
+      <textarea id="textInput" placeholder="在此输入或粘贴文言文..."></textarea>
+
+      <div class="batch-panel">
+        <div class="meta-title">批量导入（支持 .txt）</div>
+        <div style="display:flex; gap:10px; margin-top:8px;">
+          <button class="btn-secondary" id="btnBatchImport" type="button">导入文件</button>
+          <button class="btn-secondary" id="btnBatchStart" type="button">开始批量</button>
+          <span id="batchInfo" style="font-size:12px; color:#666; align-self:center;">未导入任务</span>
+        </div>
+        <input type="file" id="batchFile" multiple accept=".txt,text/plain" style="display:none" />
+        <div id="batchFiles" class="batch-files" style="display:none"></div>
+      </div>
+    </div>
+
+    <div class="control-meta">
+      <div>
+        <div class="meta-title">系统状态</div>
+        <div class="status-pill" id="statusPill">待命</div>
+      </div>
+
+      <div>
+        <div class="meta-title">词库缓存</div>
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:6px;">
+          <div style="display:flex; gap:6px;">
+            <button class="btn-secondary" id="btnImportCache" type="button" style="flex:1;">导入</button>
+            <button class="btn-secondary" id="btnExportCache" type="button" style="flex:1;">导出</button>
+          </div>
+          <input type="file" id="cacheFile" accept=".json" style="display:none" />
+          <div id="cacheInfo" style="font-size:12px; color:#666;">词条：0</div>
+        </div>
+      </div>
+
+      <div>
+        <div class="meta-title">运行日志</div>
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="reader-wrapper">
+    <div class="reader-container" id="reader" style="color:#888; font-size:16px;">
+      译文生成后点击任意汉字查看详情
+    </div>
+    <div class="translation-panel">
+      <h3>白话译文</h3>
+      <div id="fullTranslation"></div>
+    </div>
+  </section>
+
+  <div class="overlay" id="overlay"></div>
+  <div class="bottom-sheet" id="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header" id="sheetHeader"></div>
+    <div class="tabs">
+      <div class="tab active" data-tab="context">当前义</div>
+      <div class="tab" data-tab="dict">字典</div>
+      <div class="tab" data-tab="origin">字源</div>
+    </div>
+    <div class="sheet-body">
+      <div id="tab-context" class="tab-content active"></div>
+      <div id="tab-dict" class="tab-content"></div>
+      <div id="tab-origin" class="tab-content"></div>
+    </div>
+  </div>
+
+  <div class="settings-modal" id="settingsModal">
+    <div class="modal-card">
+      <h2 style="font-size:18px; margin-bottom:15px;">双核 API 配置</h2>
+      
+      <div class="setting-group">
+        <h4>1. 主力 API (负责分析/词组/字典)</h4>
+        <div style="margin-top:10px;">
+          <label style="font-size:12px;">Base URL</label>
+          <input id="apiUrl" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+        <div style="margin-top:8px;">
+          <label style="font-size:12px;">API Key</label>
+          <input id="apiKey" type="password" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+        <div style="margin-top:8px;">
+          <label style="font-size:12px;">模型</label>
+          <input id="apiModel" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+      </div>
+
+      <div class="setting-group" style="background:#f4f9f4; border-color:#dbe6db;">
+        <h4>2. 独立翻译 API (可选，填了则启用)</h4>
+        <div style="font-size:11px; color:#666; margin-bottom:8px;">推荐使用免费/低价模型(如DeepSeek)进行纯翻译，节省主API成本。</div>
+        <div style="margin-top:10px;">
+          <label style="font-size:12px;">翻译 Base URL</label>
+          <input id="transUrl" placeholder="留空则使用主力 API" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+        <div style="margin-top:8px;">
+          <label style="font-size:12px;">翻译 API Key</label>
+          <input id="transKey" type="password" placeholder="留空则使用主力 API" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+        <div style="margin-top:8px;">
+          <label style="font-size:12px;">翻译模型</label>
+          <input id="transModel" placeholder="例如 deepseek-ai/DeepSeek-V3" style="width:100%; padding:8px 10px; margin-top:4px;" />
+        </div>
+      </div>
+      
+      <div style="margin-top:10px;">
+        <label style="font-size:12px;">分段长度 (字数)</label>
+        <input id="apiChunk" type="number" placeholder="默认 100" style="width:100%; padding:10px 12px; margin-top:6px;" />
+        <div style="font-size:11px;color:#888;margin-top:2px;">建议 80-200。字数越少越稳，字数越多越快但易超时。</div>
+      </div>
+
+      <div style="margin-top:20px; text-align:right;">
+        <button class="btn-secondary" id="btnCloseSettings">取消</button>
+        <button class="btn-primary" id="btnSaveSettings">保存配置</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================
+    // 工具 & 状态
+    // =========================================================
+    const $ = (s) => document.querySelector(s);
+    const $$ = (s) => document.querySelectorAll(s);
+    
+    const store = {
+      get() { try { return JSON.parse(localStorage.getItem("wenyan_cfg")) || {}; } catch { return {}; } },
+      set(d) { localStorage.setItem("wenyan_cfg", JSON.stringify(d)); }
+    };
+
+    const logger = {
+      el: null,
+      clear() { if (!this.el) this.el = $("#logPanel"); this.el.innerHTML = ""; },
+      log(msg, type) {
+        if (!this.el) this.el = $("#logPanel");
+        const div = document.createElement("div");
+        div.style.color = type === "error" ? "red" : (type === "success" ? "green" : "#444");
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        this.el.appendChild(div);
+        this.el.scrollTop = this.el.scrollHeight;
+      }
+    };
+
+    const dictCacheKey = "wenyan_dict_v3";
+    let dictCache = {};
+    let batchQueue = [];
+    let isRunning = false;
+    let currentResult = null;
+
+    // =========================================================
+    // 初始化 (Init)
+    // =========================================================
+    document.addEventListener("DOMContentLoaded", () => {
+      dictCache = loadCache();
+      updateCacheInfo();
+
+      const cfg = store.get();
+      // 主配置
+      $("#apiUrl").value = cfg.url || "https://api.xiaomimimo.com/v1/chat/completions";
+      $("#apiKey").value = cfg.key || "";
+      $("#apiModel").value = cfg.model || "mimo-v2-flash";
+      $("#apiChunk").value = cfg.chunkSize || 100;
+      
+      // 翻译配置
+      $("#transUrl").value = cfg.transUrl || "";
+      $("#transKey").value = cfg.transKey || "";
+      $("#transModel").value = cfg.transModel || "";
+
+      resetButtons();
+
+      $("#btnSettings").onclick = () => $("#settingsModal").classList.add("active");
+      $("#btnCloseSettings").onclick = () => $("#settingsModal").classList.remove("active");
+      $("#btnSaveSettings").onclick = () => {
+        store.set({
+          url: $("#apiUrl").value.trim(),
+          key: $("#apiKey").value.trim(),
+          model: $("#apiModel").value.trim(),
+          chunkSize: parseInt($("#apiChunk").value.trim()) || 100,
+          transUrl: $("#transUrl").value.trim(),
+          transKey: $("#transKey").value.trim(),
+          transModel: $("#transModel").value.trim()
+        });
+        $("#settingsModal").classList.remove("active");
+        logger.log("配置已保存", "success");
+      };
+
+      $("#btnTranslate").onclick = () => processSingle($("#textInput").value);
+
+      $("#btnBatchImport").onclick = () => {
+        const fileInput = $("#batchFile");
+        if(fileInput) fileInput.click();
+      };
+      $("#batchFile").onchange = handleFiles;
+      
+      $("#btnBatchStart").onclick = runBatch;
+
+      $("#btnImportCache").onclick = () => $("#cacheFile").click();
+      $("#cacheFile").onchange = handleCacheImport;
+      $("#btnExportCache").onclick = () => download(dictCache, "wenyan_cache_export.json");
+
+      $("#btnDownload").onclick = () => download(currentResult, "translation.json");
+
+      $("#overlay").onclick = closeSheet;
+      $$(".tab").forEach(t => t.onclick = () => switchTab(t.dataset.tab));
+    });
+
+    function resetButtons() {
+      $("#btnTranslate").disabled = false;
+      $("#btnBatchImport").disabled = false;
+      $("#btnBatchStart").disabled = false;
+    }
+
+    // =========================================================
+    // 核心：双阶段处理逻辑
+    // =========================================================
+    
+    // 文本清洗 + 分段
+    function normalizeText(t) {
+      let text = (t || "").replace(/^\uFEFF/, "");
+      text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      text = text.replace(/([。！？；\!\?])\s*\n\s*([”’"'])/g, "$1$2");
+      text = text.replace(/([“‘"'])\s*\n\s*/g, "$1");
+      return text.trim();
+    }
+
+    function splitText(text) {
+      const t = normalizeText(text);
+      if (!t) return [];
+      
+      const cfg = store.get();
+      const TARGET_LEN = parseInt(cfg.chunkSize) || 100;
+
+      const rawLines = t.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      const chunks = [];
+      
+      rawLines.forEach(line => {
+        const parts = line.split(/([。！？；;?!\.][”’"']?)/).reduce((acc, curr, idx, arr) => {
+          if (idx % 2 === 0) {
+            const punct = arr[idx + 1] || "";
+            const s = (curr + punct).trim();
+            if(s) acc.push(s);
+          }
+          return acc;
+        }, []);
+
+        let buffer = "";
+        parts.forEach(p => {
+          if ((buffer + p).length > TARGET_LEN) {
+            if (buffer) chunks.push(buffer);
+            buffer = p;
+          } else {
+            buffer += p;
+          }
+        });
+        if (buffer) chunks.push(buffer);
+      });
+      return chunks;
+    }
+
+    async function processSingle(text, isAutoSave = false, fileName = "result") {
+      const chunks = splitText(text);
+      if (!chunks.length) return;
+      
+      const cfg = store.get();
+      if (!cfg.key) return alert("请设置主 API Key");
+
+      // 判断双卡模式
+      const dualMode = !!(cfg.transKey && cfg.transUrl);
+
+      logger.clear();
+      setStatus(dualMode ? "双核运行中..." : "单核处理中...");
+      $("#btnTranslate").disabled = true;
+      
+      const result = { sentences: [], dictionary: {} };
+
+      try {
+        for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          
+          let transText = "";
+          let analysisData = {};
+
+          if (dualMode) {
+             logger.log(`段落 ${i+1}/${chunks.length}：双API并发 (翻译 + 分析)...`, "info");
+             const [tResult, aResult] = await Promise.all([
+                callTranslationOnly(chunk, cfg),
+                callStage1AnalysisOnly(chunk, cfg)
+             ]);
+             transText = tResult;
+             analysisData = aResult;
+          } else {
+             logger.log(`段落 ${i+1}/${chunks.length}：单API全量处理...`);
+             const data = await callStage1Full(chunk, cfg);
+             transText = data.trans;
+             analysisData = data;
+          }
+
+          // 容错处理：确保 tokens 存在且不为空，否则降级处理
+          const safeTokens = (analysisData.tokens && analysisData.tokens.length > 0) 
+              ? analysisData.tokens 
+              : chunk.split('').map(c => ({c, phrase:"", mean:""}));
+
+          const words = safeTokens.map(t => ({
+            c: t.c,
+            phrase: t.phrase || "",
+            mean: t.mean || "", 
+            p: t.p || "",
+            pMean: t.phrase_mean || "" 
+          }));
+          
+          result.sentences.push({ orig: chunk, trans: transText, words });
+          render(result); 
+
+          const missingTokens = [];
+          const missingPhrases = [];
+
+          words.forEach(w => {
+            if (w.c && !isPunctuation(w.c)) {
+              if (!dictCache[w.c]) missingTokens.push(w.c);
+              else result.dictionary[w.c] = asEntryArray(dictCache[w.c])[0];
+            }
+            if (w.phrase && w.phrase.length > 1) {
+              if (!dictCache[w.phrase]) missingPhrases.push(w.phrase);
+              else result.dictionary[w.phrase] = asEntryArray(dictCache[w.phrase])[0];
+            }
+          });
+
+          const uniqueMissing = [...new Set([...missingTokens, ...missingPhrases])];
+
+          if (uniqueMissing.length > 0) {
+            logger.log(`段落 ${i+1}：发现 ${uniqueMissing.length} 个新词，正在查阅字典...`, "info");
+            const newDicts = await callStage2(uniqueMissing, cfg);
+            
+            Object.entries(newDicts).forEach(([key, entry]) => {
+              upsertCharEntry(key, entry);
+              result.dictionary[key] = entry;
+            });
+            saveCache();
+          } else {
+            logger.log(`段落 ${i+1}：全词命中缓存，跳过字典查询`, "success");
+          }
+
+          if(i < chunks.length - 1) await new Promise(r => setTimeout(r, 1000));
+        }
+
+        currentResult = result;
+        if (isAutoSave) download(result, `${fileName}.json`);
+        setStatus("就绪");
+        logger.log("全部完成", "success");
+
+      } catch (e) {
+        logger.log("错误：" + e.message, "error");
+        setStatus("失败");
+      } finally {
+        $("#btnTranslate").disabled = false;
+      }
+    }
+
+    // =========================================================
+    // API 调用函数群 (回归自然语言Prompt，包含工程约束)
+    // =========================================================
+
+    // 1. 独立翻译 (Free LLM)
+    async function callTranslationOnly(text, cfg) {
+      const prompt = `将整段文言文翻译为白话文。注意只要白话文翻译，不要其他的解释或说明，标点符号要一一对应;对于人名、地名、官职等结合句子的语境返回详细信息，不要返回原文以及译文之外的其他东西`
+      const transCfg = { url: cfg.transUrl, key: cfg.transKey, model: cfg.transModel || "deepseek-ai/DeepSeek-V3" };
+      
+      const res = await fetchWithRetry(transCfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: text }
+      ], false);
+
+      if (typeof res === 'object' && res.translation) return res.translation;
+      if (typeof res === 'string') return res;
+      return JSON.stringify(res);
+    }
+
+    // 2. 纯分析 (Main LLM - Dual Mode) - 语义增强版
+    async function callStage1AnalysisOnly(text, cfg) {
+      const prompt = `你是一位精通古代汉语的训诂专家。请对文言文进行逐字拆解和词组识别。
+【当前文章标题】：${fileName}
+【输出要求】
+仅输出严格的 JSON (无 Markdown)：{"tokens":[{"c":"原文单字","p":"","mean":"单字语境义","phrase":"词组","phrase_mean":"词组义"}]}
+【任务目标】
+1. 逐字拆解，并**积极识别词组**。
+
+【词组识别原则】：
+1. **识别范围**：请识别文中所有的“固定搭配”、“双音节词”、“成语”、“连词”、“专有名词”以及“特指的数量结构/度量衡”。人名、地名、官职、成语、典故、紧密的双音节名词/动词,对于单字名词（人名，地名，官名,或称谓等）一定要根据语境出处返回详细释义，或锚定人物典故等
+2. **判定标准**：凡是两个或以上汉字结合紧密，表达一个完整概念（如一个名物、一个动作、一种状态）的，都应视为词组。
+3. **🚫 禁止识别**：
+   - 禁止将“主谓结构”或“动宾短语”标记为词组（如："公曰"、"姜氏欲之" ❌）。
+   - 禁止包含句末语气词的句子（如："国之害也"、"难图也" ❌）。
+   - 禁止松散的助词短语（如："之害" ❌）。
+//【核心规则】
+//1. **严格对齐**：tokens 数组长度必须与原文字符数（含标点空白）完全一致。标点/空白的属性留空。
+//2. **词组识别**：
+//   - ✅ **积极合并**：凡是两个及以上汉字结合紧密、表达一个完整概念的，都应标记为 phrase。单字不是词组
+//   - **必须包含**：人名（如公父文伯）、地名、官职、成语、功能虚词（既而）、以及**状态动作词**（如：方绩、方兴、未既、退朝）。
+//   - **一致性**：同词组内的字，phrase 和 phrase_mean 必须完全相同。
+//   - **凡是两个或以上汉字结合紧密，表达一个完整概念（如一个名物、一个动作、一种状态）的，都应视为词组。
+//   - **请识别文中所有的“固定搭配”、“双音节词”、“成语”、“连词”、“专有名词”以及“特指的数量结构/度量衡”。人名、地名、官职、成语、典故、紧密的双音节名词/动词并返回详细释义
+//3. **字义精度（关键）**：
+//   - **mean** 字段必须解释**该单字**在句中的具体含义。
+//   - **禁止复制**：如果该字属于词组，mean **禁止**直接复制 phrase_mean，必须解释它作为构词成分的意思。（例如：“明月”中，“明”的 mean 应为“明亮”，不可为“月亮”；“月”的 mean 为“月亮”）。
+//   - **对于单字名词（人名，地名，官名等）一定要根据语境返回详细释义
+//4. **无需翻译**：本次任务专注于字义分析。`;
+      
+      return await fetchWithRetry(cfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: text }
+      ], true);
+    }
+
+    // 3. 全量模式 (Main LLM - Single Mode) - 语义增强版
+    async function callStage1Full(text, cfg) {
+      const prompt = `你是一位精通古代汉语的训诂专家。请将输入的文言文转换为结构化数据。
+【输出要求】
+仅输出严格的 JSON (无 Markdown)：{"trans":"全段白话直译","tokens":[{"c":"原文单字","p":"","mean":"单字语境义","phrase":"词组","phrase_mean":"词组义"}]}
+
+【核心规则】
+1. **严格对齐**：tokens 数组长度必须与原文字符数（含标点空白）完全一致。标点/空白的属性留空。
+2. **词组识别**：
+   - ✅ **积极合并**：凡是两个及以上汉字结合紧密、表达一个完整概念的，都应标记为 phrase。请识别文中所有的“固定搭配”、“双音节词”、“成语”、“连词”、“专有名词”以及“特指的数量结构/度量衡”。人名、地名、官职、成语、典故、紧密的双音节名词/动词
+   - **必须包含**：人名（如公父文伯）、地名、官职、成语、功能虚词（既而）、以及**状态动作词**（如：方绩、方兴、未既、退朝）。对专用名字如人名地名，要联系上下文返回较详细的释义
+   - **一致性**：同词组内的字，phrase 和 phrase_mean 必须完全相同。
+3. **字义精度（关键）**：
+   - **mean** 字段必须解释**该单字**在句中的具体释义，联系上下文和语境给出每个字在句子里的释义
+   - **禁止复制**：如果该字属于词组，mean **禁止**直接复制 phrase_mean，必须解释它作为构词成分的意思。（例如：“明月”中，“明”的 mean 应为“明亮”，不可为“月亮”）。
+4. **全段翻译**：trans 字段必须提供全段通顺流畅的现代汉语直译。`;
+
+      return await fetchWithRetry(cfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: text }
+      ], true);
+    }
+
+    // 4. 字典查询 (Main LLM)
+    async function callStage2(terms, cfg) {
+      const listStr = terms.join("、");
+      const prompt = `你是一部文言文词典。请为以下生字/词提供【标准字典释义】。
+生词列表：${listStr}
+
+返回严格 JSON，Key 是生词，Value 是详情：
+{
+  "字或词": {
+    "p": "拼音",
+    "pos": "词性",
+    "g": "完整释义列表(多义项用分号隔开)",
+    "ety": { "origin": "字源/出处", "type": "造字法" }
+  }
+}
+注意：ety 字段仅单字需要。`;
+
+      return await fetchWithRetry(cfg, [
+        { role: "system", content: prompt },
+        { role: "user", content: "请生成字典数据。" }
+      ], true);
+    }
+
+    // ---------------------------------------------------------
+    // 通用网络请求 (适配 Mimo/OpenAI Header)
+    // ---------------------------------------------------------
+    async function fetchWithRetry(cfg, messages, expectJson = true, retries = 3) {
+      const body = {
+        model: cfg.model,
+        messages: messages,
+        temperature: 0.1,
+        stream: false,
+        thinking: { type: "disabled" } // 防止 Mimo 报错
+      };
+
+      // 非 Mimo 接口才加 JSON 格式限制
+      if (expectJson && !cfg.url.includes("xiaomimimo")) {
+        body.response_format = { type: "json_object" };
+      }
+
+      for (let i = 0; i < retries; i++) {
+        try {
+          const controller = new AbortController();
+          const id = setTimeout(() => controller.abort(), 300000); 
+          
+          // 智能 Header 切换
+          const headers = { "Content-Type": "application/json" };
+          if (cfg.url.includes("xiaomimimo")) {
+            headers["api-key"] = cfg.key;
+          } else {
+            headers["Authorization"] = `Bearer ${cfg.key}`;
+          }
+
+          const res = await fetch(cfg.url, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify(body),
+            signal: controller.signal
+          });
+          clearTimeout(id);
+          
+          if (!res.ok) {
+             const txt = await res.text();
+             throw new Error(`HTTP ${res.status}: ${txt.slice(0, 50)}`);
+          }
+          const data = await res.json();
+          let content = data.choices?.[0]?.message?.content || "";
+
+          if (expectJson) return safeJsonParse(content);
+          return content;
+
+        } catch (e) {
+          if (i === retries - 1) throw e;
+          logger.log(`请求重试 (${i+1}/${retries})...`, "info");
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    }
+
+    // =========================================================
+    // 缓存与通用
+    // =========================================================
+    function isPunctuation(char) { return /[\u3000\s，。？！；：“”‘’、《》〈〉——…\-,.?!;:(){}[\]"']/.test(char); }
+    
+    function safeJsonParse(text) {
+      try { return JSON.parse(text); } catch {}
+      const clean = text.replace(/^```json\s*/i, "").replace(/```$/g, "").trim();
+      try { return JSON.parse(clean); } catch {}
+      return { tokens: [] };
+    }
+
+    function loadCache() { try { return JSON.parse(localStorage.getItem(dictCacheKey)||"{}"); } catch { return {}; } }
+    function saveCache() { localStorage.setItem(dictCacheKey, JSON.stringify(dictCache)); updateCacheInfo(); }
+    function updateCacheInfo() { $("#cacheInfo").textContent = `词条：${Object.keys(dictCache).length}`; }
+    function setStatus(s) { $("#statusPill").textContent = s; }
+
+    function asEntryArray(v) {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      return [v];
+    }
+
+    function upsertCharEntry(key, entry) {
+      if (!key || !entry) return;
+      const arr = asEntryArray(dictCache[key]);
+      const exists = arr.some(e => e.p === entry.p && e.g === entry.g);
+      if (!exists) {
+        arr.unshift(entry); 
+        dictCache[key] = arr;
+      }
+    }
+
+    function handleCacheImport(e) {
+      const file = e.target.files?.[0];
+      if(!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try { Object.assign(dictCache, JSON.parse(ev.target.result)); saveCache(); alert("导入成功"); } catch{ alert("格式错误"); }
+      };
+      reader.readAsText(file);
+      e.target.value = "";
+    }
+
+    // =========================================================
+    // 批量 (复用 processSingle)
+    // =========================================================
+    function handleFiles(e) {
+      const files = Array.from(e.target.files||[]);
+      files.forEach(f => {
+        if(!f.name.endsWith(".txt")) return;
+        const r = new FileReader();
+        r.onload = ev => { batchQueue.push({name: f.name, text: normalizeText(ev.target.result)}); renderBatchList(); };
+        r.readAsText(f);
+      });
+      e.target.value = "";
+    }
+    function renderBatchList() {
+      $("#batchFiles").style.display = batchQueue.length ? "block" : "none";
+      $("#batchFiles").innerHTML = batchQueue.map((f,i) => 
+        `<div class="batch-item"><span>${escapeHtml(f.name)}</span><button onclick="removeBatch(${i})">删除</button></div>`
+      ).join("");
+      $("#batchInfo").textContent = batchQueue.length ? `待处理：${batchQueue.length}` : "未导入";
+    }
+    window.removeBatch = (i) => {
+      batchQueue.splice(i, 1);
+      renderBatchList();
+    };
+
+    async function runBatch() {
+      if(isRunning || !batchQueue.length) return;
+      const cfg = store.get();
+      if(!cfg.key) return alert("API Key Missing");
+      isRunning = true;
+      $("#btnBatchStart").disabled = true;
+      $("#btnBatchImport").disabled = true; 
+      try {
+        for(let i=0; i<batchQueue.length; i++) {
+          logger.log(`批量处理：${batchQueue[i].name}`);
+          await processSingle(batchQueue[i].text, true, batchQueue[i].name.replace(".txt",""));
+        }
+        alert("批量完成");
+      } finally {
+        isRunning = false;
+        $("#btnBatchStart").disabled = false;
+        $("#btnBatchImport").disabled = false; 
+        batchQueue = [];
+        renderBatchList();
+      }
+    }
+
+    // =========================================================
+    // UI 渲染
+    // =========================================================
+    function render(data) {
+      $("#reader").innerHTML = "";
+      $("#fullTranslation").innerHTML = "";
+      data.sentences.forEach(s => {
+        const p = document.createElement("p");
+        p.className = "reader-line";
+        s.words.forEach(w => {
+          const span = document.createElement("span");
+          span.textContent = w.c;
+          if(isPunctuation(w.c)) span.className = "punct";
+          else {
+            span.className = "char";
+            span.onclick = () => openDetail(span, w, s, data.dictionary);
+          }
+          p.appendChild(span);
+        });
+        $("#reader").appendChild(p);
+        $("#fullTranslation").innerHTML += `<p>${escapeHtml(s.trans)}</p>`;
+      });
+    }
+
+    function openDetail(el, word, sentence, dict) {
+      $$(".char.active").forEach(n=>n.classList.remove("active"));
+      el.classList.add("active");
+
+      const cachedEntry = dict[word.c] || {}; 
+      const phraseEntry = word.phrase ? (dict[word.phrase] || {}) : null;
+
+      $("#sheetHeader").innerHTML = `
+        <span class="big-char">${escapeHtml(word.c)}</span>
+        <span class="pinyin">[ ${escapeHtml(word.p || cachedEntry.p || "")} ]</span>
+        <span class="radical">${escapeHtml(cachedEntry.pos || "")}</span>
+      `;
+
+      $("#tab-context").innerHTML = `
+        <div class="context-meaning">
+          <div class="context-term">单字：${escapeHtml(word.c)}</div>
+          <div class="context-def"><b>当前义：</b>${escapeHtml(word.mean || "暂无")}</div>
+        </div>
+        ${word.phrase ? `
+        <div class="context-meaning">
+          <div class="context-term">词组：${escapeHtml(word.phrase)}</div>
+          <div class="context-def"><b>当前义：</b>${escapeHtml(word.pMean || "暂无")}</div>
+        </div>` : ''}
+        <div class="translation-box">
+          <b>原句：</b>${escapeHtml(sentence.orig)}<br>
+          <b>译文：</b>${escapeHtml(sentence.trans)}
+        </div>
+      `;
+
+      let dictHtml = "";
+      if (phraseEntry && phraseEntry.g) {
+         dictHtml += `<div class="dict-list-item"><b>【${word.phrase}】</b><br>${formatDictText(phraseEntry.g)}</div><hr style="margin:10px 0;border:0;border-top:1px dashed #eee;">`;
+      }
+      dictHtml += `<div class="dict-list-item"><b>【${word.c}】</b><br>${formatDictText(cachedEntry.g)}</div>`;
+      
+      $("#tab-dict").innerHTML = dictHtml || "暂无字典数据";
+
+      const ety = cachedEntry.ety || {};
+      $("#tab-origin").innerHTML = `
+        <div class="context-meaning">
+           <div class="evo-char font-oracle" style="font-size:32px;text-align:center;margin:10px auto;">${escapeHtml(word.c)}</div>
+           <p><b>来源：</b>${escapeHtml(ety.origin || "暂无")}</p>
+           <p><b>造字：</b>${escapeHtml(ety.type || "暂无")}</p>
+        </div>
+      `;
+
+      $("#sheet").classList.add("show");
+      $("#overlay").classList.add("show");
+      switchTab("context");
+    }
+
+    function formatDictText(text) {
+      if(!text) return "暂无";
+      return escapeHtml(text).replace(/[；;]/g, "<br>• ");
+    }
+
+    function switchTab(n) {
+      $$(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === n));
+      $$(".tab-content").forEach(c => c.classList.toggle("active", c.id === `tab-${n}`));
+    }
+    function closeSheet() { $("#sheet").classList.remove("show"); $("#overlay").classList.remove("show"); $$(".char.active").forEach(n=>n.classList.remove("active")); }
+    function download(d, n) { if(!d)return; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([JSON.stringify(d,null,2)])); a.download = n; a.click(); }
+    function escapeHtml(s) { return String(s||"").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  </script>
+</body>
+</html>
